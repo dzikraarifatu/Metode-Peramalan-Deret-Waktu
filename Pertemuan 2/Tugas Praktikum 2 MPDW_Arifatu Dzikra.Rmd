@@ -1,0 +1,511 @@
+---
+title: "Tugas Praktikum 2 MPDW"
+author: "Arifatu Dzikra"
+date: "2026-08-28"
+output: 
+  html_document:
+    theme: paper
+    highlight: kate
+    toc: true
+    toc_float: 
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library("forecast")
+library("graphics")
+library("TTR")
+library("TSA")
+library("rio")
+library("ggplot2")
+```
+
+# Persiapan dan Impor Data
+Analisis ini difokuskan pada 100 data observasi pertama dari dataset Suhu Rata-rata Kota Bogor.
+```{r}
+# Mengimpor data
+filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/mpdw/Pertemuan 2/data suhu bogor 500 akhir.xlsx"
+data_full <- import(filepath)
+
+# Mengambil 100 data pertama
+data1 <- data_full[1:100, ]
+colnames(data1) <- c("Tanggal", "Suhu")
+
+# menampilkan 6 data pertama
+head(data1)
+```
+
+Berdasarkan tabel output di atas, proses impor dan pemotongan data telah berhasil dilakukan tanpa kendala. Tabel tersebut menampilkan enam baris pertama dari total 100 observasi harian yang akan kita analisis. Terdapat dua informasi utama di dalamnya: kolom Tanggal yang menunjukkan runtutan waktu pengamatan harian (dimulai sejak 14 April 2025), dan kolom Suhu yang merekam suhu udara rata-rata pada hari tersebut dalam satuan derajat Celcius (°C).
+
+# Eksplorasi Data
+View(): menampilkan data dalam bentuk tabel, str(): menampilkan struktur data, dim(): menampilkan dimensi data.
+```{r}
+# View(data1)
+str(data1)
+dim(data1)
+```
+
+Dimensi data adalah 100 baris dan 2 kolom. Variabel Suhu bertipe numerik.
+
+```{r}
+# Mengubah data agar terbaca sebagai data deret waktu dengan fungsi ts().
+data1.ts <- ts(data1$Suhu)
+
+# Menampilkan ringkasan data
+summary(data1.ts)
+```
+
+Berdasarkan ringkasan statistik tersebut, kondisi suhu udara di Kota Bogor selama 100 hari pengamatan berfluktuasi antara titik terdingin di angka 24,10°C hingga titik terpanas mencapai 28,20°C. Secara umum, rata-rata suhu harian menetap di kisaran 25,98°C, yang mengindikasikan pola cuaca harian yang relatif hangat dan stabil pada periode tersebut.
+
+```{r}
+# Membuat plot data deret waktu
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu (°C)", 
+        main = "Time Series Plot Suhu Kota Bogor")
+points(data1.ts, cex=0.5)
+
+# Menyimpan plot
+dev.copy(png, "plot_data_suhu.png")
+dev.off()
+```
+
+Berdasarkan visualisasi plot time series di atas, terlihat bahwa suhu udara harian berfluktuasi secara acak di sekitar nilai tengahnya (sekitar 26°C). Tidak ditemukan adanya indikasi tren kenaikan maupun penurunan suhu yang signifikan dalam jangka waktu 100 hari tersebut. Karakteristik pergerakan mendatar ini mengonfirmasi bahwa dataset yang kita gunakan memiliki pola stasioner konstan (horizontal). Penemuan pola awal ini sangat penting, karena akan menjadi acuan utama kita dalam memilih metode pemulusan (smoothing) yang paling tepat pada tahap analisis selanjutnya.
+
+# Moving Average
+## Pembagian Data
+Pembagian data latih dan data uji dilakukan dengan perbandingan 80% data latih dan 20% data uji.
+```{r}
+# Hitung jumlah data
+n <- nrow(data1)
+
+# Tentukan batas 80%
+n_train <- floor(0.8 * n)
+
+# Bagi data
+training_ma <- data1[1:n_train, ]
+testing_ma  <- data1[(n_train+1):n, ]
+
+# Ubah ke time series
+train_ma.ts <- ts(training_ma$Suhu)
+test_ma.ts  <- ts(testing_ma$Suhu)
+```
+
+Eksplorasi data dilakukan pada keseluruhan data, data latih serta data uji menggunakan plot data deret waktu.
+```{r}
+# Eksplorasi keseluruhan data
+plot(data1.ts, col="black", main="Plot semua data")
+points(data1.ts, cex=0.5)
+
+# Eksplorasi data latih
+plot(train_ma.ts, col="blue", main="Plot data latih")
+points(train_ma.ts, cex=0.5)
+
+# Eksplorasi data uji
+plot(test_ma.ts, col="red", main="Plot data uji")
+points(test_ma.ts, cex=0.5)
+```
+
+Pembagian dataset merupakan prosedur standar dalam pemodelan deret waktu untuk mencegah terjadinya overfitting. Pada tahap ini, 100 observasi awal dibagi menjadi dua bagian dengan rasio 80:20. Bagian pertama (garis biru pada plot) terdiri dari 80 hari pertama yang difungsikan sebagai Data Latih (Training Set) untuk membangun dan melatih model peramalan. Bagian kedua (garis merah pada plot) terdiri dari 20 hari terakhir yang difungsikan sebagai Data Uji (Testing Set) untuk mengevaluasi seberapa akurat model tersebut dalam memprediksi data yang belum pernah "dilihat" sebelumnya.
+
+Eksplorasi data juga dapat dilakukan menggunakan package ggplot2 dengan terlebih dahulu memanggil library package ggplot2.
+```{r}
+library(ggplot2)
+# Membuat deret waktu buatan agar x-axis bisa dibaca ggplot (1 sampai n)
+training_ma$Period <- 1:n_train
+testing_ma$Period <- (n_train+1):n
+
+ggplot() + 
+  geom_line(data = training_ma, aes(x = Period, y = Suhu, col = "Data Latih")) +
+  geom_line(data = testing_ma, aes(x = Period, y = Suhu, col = "Data Uji")) +
+  labs(x = "Periode Waktu", y = "Suhu (°C)", color = "Keterangan:") +
+  scale_colour_manual(breaks = c("Data Latih", "Data Uji"),
+                      values = c("blue", "red")) + 
+  theme_bw() + theme(legend.position = "bottom",
+                     plot.caption = element_text(hjust=0.5, size=12))
+```
+
+Pembagian data telah berhasil. 80 observasi awal (garis biru) digunakan untuk membentuk model (Latih/Train), dan 20 observasi terakhir (garis merah) digunakan untuk memvalidasi kinerja peramalan model (Uji/Test).
+
+# Single Moving Average (SMA)
+Metode Single Moving Average (SMA) meratakan fluktuasi jangka pendek dengan menghitung rata-rata bergerak dari $m$ data terakhir. Pada analisis ini digunakan parameter $m = 4$ (rata-rata per 4 hari).
+```{r}
+data.sma <- SMA(train_ma.ts, n=4)
+data.sma
+```
+
+Tiga baris pertama bernilai NA (Not Available) karena perhitungan rata-rata membutuhkan minimal 4 data historis awal. Nilai pemulusan pertama baru muncul pada periode ke-4 (25,675°C), yang merupakan rata-rata suhu dari hari ke-1 hingga hari ke-4.
+
+Pada metode SMA, nilai pemulusan pada hari ke-$t$ digunakan sebagai nilai prediksi (forecast) untuk hari berikutnya ($t+1$). Oleh karena itu, deret nilai digeser satu periode ke depan dengan menyisipkan nilai NA di awal.
+```{r}
+data.ramal <- c(NA, data.sma)
+```
+
+Selanjutnya, nilai pemulusan terakhir pada data latih (hari ke-80) dijadikan sebagai acuan ramalan tetap (flat forecast) untuk memproyeksikan suhu pada 20 hari ke depan (periode hari ke-81 hingga 100).
+```{r}
+data.gab <- cbind(
+  aktual = c(data1.ts),
+  pemulusan = c(data.sma, rep(NA, 20)),
+  ramalan = c(data.ramal, rep(data.ramal[length(data.ramal)], 19))
+)
+```
+
+Adapun plot data deret waktu dari hasil peramalan yang dilakukan adalah sebagai berikut.
+```{r}
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu", main= "SMA N=4 Data Suhu")
+points(data1.ts, cex=0.5)
+lines(data.gab[,2], col="green", lwd=2)
+lines(data.gab[,3], col="red", lwd=2)
+legend("topleft", c("data aktual", "data pemulusan", "data peramalan"), lty=1, col=c("black","green","red"), cex=0.7)
+```
+
+Berdasarkan grafik hasil pemulusan SMA ($n=4$) di atas, garis hijau (Pemulusan) menunjukkan keberhasilan meredam gejolak suhu harian yang tajam sehingga pola dasar pergerakan suhu pada data latih terlihat lebih halus dan stabil. Adapun garis merah (Peramalan) mengikuti pola data aktual dengan sedikit jeda satu hari pada data latih, kemudian bergerak lurus mendatar (flat forecast) pada fase data uji (hari ke-81 hingga 100).
+
+Pola ramalan mendatar ini merupakan sifat alami dari metode SMA, di mana proyeksi masa depan mengacu pada nilai rata-rata dari periode terakhir yang diamati. Karakteristik ramalan konstan seperti ini sangat selaras dengan sifat alami suhu harian Kota Bogor yang memang berfluktuasi stabil di sekitar nilai rata-rata tanpa adanya tren kenaikan atau penurunan ekstrem.
+
+## Akurasi Data Latih
+```{r}
+error_train.sma = train_ma.ts - data.ramal[1:length(train_ma.ts)]
+
+SSE_train.sma = sum(error_train.sma[5:length(train_ma.ts)]^2)
+MSE_train.sma = mean(error_train.sma[5:length(train_ma.ts)]^2)
+MAPE_train.sma = mean(abs((error_train.sma[5:length(train_ma.ts)]/train_ma.ts[5:length(train_ma.ts)])*100))
+
+akurasi_train.sma <- matrix(c(SSE_train.sma, MSE_train.sma, MAPE_train.sma))
+row.names(akurasi_train.sma)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi_train.sma) <- c("Akurasi m = 4")
+akurasi_train.sma
+```
+
+Berdasarkan evaluasi pada fase data latih, metode SMA ($m=4$) menunjukkan performa yang sangat memuaskan dengan nilai rata-rata persentase kesalahan (MAPE) sebesar 2,24%. Angka ini mengindikasikan bahwa model rata-rata bergerak 4 harian mampu merekonstruksi dan mengikuti pergerakan suhu historis dengan tingkat ketepatan di atas 97%. Nilai kesalahan yang berada jauh di bawah ambang batas 10% ini menandakan bahwa model telah terlatih dengan sangat baik.
+
+## Akurasi Data Uji
+```{r}
+error_test.sma = test_ma.ts - data.gab[81:100, 3]
+
+SSE_test.sma = sum(error_test.sma^2)
+MSE_test.sma = mean(error_test.sma^2)
+MAPE_test.sma = mean(abs((error_test.sma/test_ma.ts)*100))
+
+akurasi_test.sma <- matrix(c(SSE_test.sma, MSE_test.sma, MAPE_test.sma))
+row.names(akurasi_test.sma)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test.sma) <- c("Akurasi m = 4")
+akurasi_test.sma
+```
+
+Pada tahap pengujian terhadap 20 hari data baru yang belum pernah dipelajari, model SMA menghasilkan nilai MAPE sebesar 4,18%. Meskipun terjadi sedikit kenaikan nilai kesalahan dibandingkan fase pelatihan—yang merupakan hal wajar dalam validasi data deret waktu—tingkat kesalahan rata-rata ini masih berada jauh di bawah 10%. Hal ini membuktikan bahwa metode peramalan konstan dari SMA memiliki keandalan yang sangat tinggi (highly accurate) saat memproyeksikan suhu Kota Bogor untuk 20 hari ke depan.
+
+# Double Moving Average (DMA)
+Metode ini lebih cocok digunakan untuk pola data trend.
+```{r}
+dma <- SMA(data.sma, n = 4)
+At <- 2*data.sma - dma
+Bt <- 2/(4-1)*(data.sma - dma)
+data.dma <- At + Bt
+data.ramal2 <- c(NA, data.dma)
+
+t = 1:20
+f = c()
+
+for (i in t) {
+  f[i] = At[length(At)] + Bt[length(Bt)]*(i)
+}
+
+data.gab2 <- cbind(
+  aktual = c(data1.ts), 
+  pemulusan1 = c(data.sma, rep(NA,20)),
+  pemulusan2 = c(dma, rep(NA,20)),
+  At = c(At, rep(NA,20)), 
+  Bt = c(Bt, rep(NA,20)),
+  ramalan = c(data.ramal2, f[-1])
+)
+```
+
+Hasil pemulusan menggunakan metode DMA divisualisasikan sebagai berikut
+```{r}
+ts.plot(data1.ts, xlab="Time Period ", ylab="Suhu", main= "DMA N=4 Data Suhu")
+points(data1.ts, cex=0.5)
+lines(data.gab2[,3], col="green", lwd=2)
+lines(data.gab2[,6], col="red", lwd=2)
+legend("topleft", c("data aktual", "data pemulusan", "data peramalan"), lty=1, col=c("black","green","red"), cex=0.7)
+```
+
+Berbeda dengan metode SMA yang menghasilkan garis ramalan mendatar, grafik DMA ($n=4$) menunjukkan pergerakan garis ramalan (merah) yang menurun secara linear pada periode data uji (hari ke-81 hingga 100).Kondisi ini terjadi karena algoritma DMA dirancang khusus untuk data yang memiliki tren. Akibatnya, penurunan suhu sesaat yang terjadi secara acak di akhir fase pelatihan (sekitar hari ke-75 sampai ke-80) keliru diidentifikasi oleh model sebagai "tren penurunan jangka panjang". Model kemudian memproyeksikan penurunan tersebut terus berlanjut ke masa depan, padahal suhu riil di fase pengujian justru kembali naik. Perilaku ini menjadi gambaran visual mengapa metode berbasis tren (DMA) kurang cocok diterapkan pada data yang berpola horizontal/konstan.
+
+## Akurasi Data Latih
+```{r}
+error_train.dma = train_ma.ts - data.ramal2[1:length(train_ma.ts)]
+
+SSE_train.dma = sum(error_train.dma[8:length(train_ma.ts)]^2)
+MSE_train.dma = mean(error_train.dma[8:length(train_ma.ts)]^2)
+MAPE_train.dma = mean(abs((error_train.dma[8:length(train_ma.ts)]/train_ma.ts[8:length(train_ma.ts)])*100))
+
+akurasi_train.dma <- matrix(c(SSE_train.dma, MSE_train.dma, MAPE_train.dma))
+row.names(akurasi_train.dma)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi_train.dma) <- c("Akurasi m = 4")
+akurasi_train.dma
+```
+
+Evaluasi pada data latih menunjukkan bahwa metode DMA ($m=4$) mampu mengikuti pola historis dengan sangat baik, tercermin dari rata-rata persentase kesalahan (MAPE) sebesar 2,64%. Tingkat ketepatan di atas 97% ini menandakan bahwa proses perataan bertingkat pada DMA bekerja optimal selama fase pembelajaran data masa lalu.
+
+## Akurasi Data Uji
+```{r}
+error_test.dma = test_ma.ts - data.gab2[81:100, 6]
+SSE_test.dma = sum(error_test.dma^2)
+MSE_test.dma = mean(error_test.dma^2)
+MAPE_test.dma = mean(abs((error_test.dma/test_ma.ts)*100))
+
+akurasi_test.dma <- matrix(c(SSE_test.dma, MSE_test.dma, MAPE_test.dma))
+row.names(akurasi_test.dma)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test.dma) <- c("Akurasi m = 4")
+akurasi_test.dma
+```
+
+Pada tahap pengujian 20 hari ke depan, nilai MAPE model DMA meningkat menjadi 4,85% dengan nilai MSE sebesar 2,73. Meskipun secara umum nilai kesalahan di bawah 10% masih tergolong akurat, performa DMA terbukti lebih rendah dibandingkan SMA (yang memiliki MSE 2,09 dan MAPE 4,18%). Hal ini menegaskan bahwa penambahan asumsi tren pada data suhu yang bersifat konstan/horizontal justru meningkatkan potensi kesalahan peramalan (false trend).
+
+# Exponential Smoothing
+## Pembagian Data
+Pada tahapan Exponential Smoothing, pembagian data tetap menggunakan proporsi yang sama dengan metode sebelumnya, yaitu 80% (80 hari pertama) sebagai data latih dan 20% (20 hari terakhir) sebagai data uji. Penyiapan ulang objek data ini dilakukan untuk memastikan format deret waktu (ts) siap digunakan secara spesifik oleh fungsi-fungsi pemulusan eksponensial.
+```{r}
+training <- data1[1:n_train, ]
+testing  <- data1[(n_train+1):n, ]
+
+train.ts <- ts(training$Suhu)
+test.ts  <- ts(testing$Suhu)
+```
+
+## Eksplorasi
+```{r}
+training$Period <- 1:n_train
+testing$Period <- (n_train+1):n
+
+ggplot() + 
+  geom_line(data = training, aes(x = Period, y = Suhu, col = "Data Latih")) +
+  geom_line(data = testing, aes(x = Period, y = Suhu, col = "Data Uji")) +
+  labs(x = "Periode Waktu", y = "Suhu", color = "Legend") +
+  scale_colour_manual(name="Keterangan:", breaks = c("Data Latih", "Data Uji"),
+                      values = c("blue", "red")) + 
+  theme_bw() + theme(legend.position = "bottom", plot.caption = element_text(hjust=0.5, size=12))
+```
+
+Visualisasi di atas menegaskan kontinuitas data suhu harian dari fase pelatihan (garis biru) menuju fase pengujian (garis merah). Terlihat bahwa baik data latih maupun data uji berada pada rentang variasi suhu yang serupa (berkisar antara 24°C hingga 28°C). Tidak adanya lompatan nilai yang drastis di antara kedua potongan data ini menunjukkan bahwa pembagian data telah proporsional dan siap digunakan untuk menguji keandalan metode Exponential Smoothing.
+
+# Single Exponential Smoothing (SES)
+Metode Single Exponential Smoothing (SES) bekerja dengan memberikan bobot yang menurun secara bertahap pada data masa lalu, di mana data suhu paling baru mendapatkan prioritas pembobotan tertinggi. Metode ini sangat ideal untuk data yang berpola stasioner atau berfluktuasi stabil di sekitar rata-rata. Pada analisis ini, nilai parameter pemulusan $\alpha$ dioptimalkan secara otomatis oleh sistem agar menghasilkan model dengan tingkat kesalahan minimum.
+```{r}
+# Pemulusan dengan fungsi SES menggunakan parameter optimum
+ses.opt <- ses(train.ts, h = 20, alpha = NULL)
+
+autoplot(ses.opt) +
+  autolayer(fitted(ses.opt), series="Fitted") +
+  ylab("Suhu (°C)") + xlab("Periode") + ggtitle("SES (Alpha Optimum)")
+```
+
+Grafik hasil pemulusan SES di atas menampilkan beberapa informasi utama:
+
+- Garis Hitam (Data Aktual): Menunjukkan pergerakan riil suhu harian selama 80 hari pertama.
+
+- Garis Merah (Fitted Values): Merupakan hasil pemulusan model yang mampu mengikuti dinamika naik-turunnya suhu secara adaptif dan responsif.
+
+- Garis Biru Mendatar (Forecast): Menunjukkan proyeksi suhu untuk 20 hari ke depan (hari ke-81 hingga 100). Sesuai karakteristik SES, ramalan bergerak lurus konstan karena tidak memaksakan adanya tren buatan.
+
+- Area Biru Terang (Selang Kepercayaan): Menunjukkan rentang batas wajar variasi suhu di masa depan pada tingkat keyakinan 80% dan 95%.
+
+## Akurasi Data Latih
+```{r}
+SSE.1 <- sum((ses.opt$residuals)^2)
+MSE.1 <- SSE.1/length(train.ts)
+MAPE.1 <- sum(abs(ses.opt$residuals/train.ts)*100)/length(train.ts)
+
+akurasi.1 <- matrix(c(SSE.1, MSE.1, MAPE.1))
+row.names(akurasi.1)<- c("SSE", "MSE", "MAPE")
+colnames(akurasi.1) <- c("Akurasi SES Optimum")
+akurasi.1
+```
+
+Pada fase pembelajaran data historis (80 hari pertama), metode Single Exponential Smoothing (SES) menunjukkan kinerja penyesuaian yang sangat baik dengan nilai rata-rata kesalahan (MAPE) sebesar 2,11%. Rendahnya tingkat galat ini (di bawah ambang batas 10%) menandakan bahwa pembobotan eksponensial otomatis pada SES mampu menangkap pola suhu masa lalu secara optimal tanpa menimbulkan distorsi yang berarti.
+
+# Akurasi Data Uji
+```{r}
+# error (ramalan - aktual)
+eopt <- as.numeric(ses.opt$mean) - as.numeric(testing$Suhu)
+
+SSEtestingopt  <- sum(eopt^2,  na.rm = TRUE)
+MSEtestingopt  <- mean(eopt^2, na.rm = TRUE)
+MAPEtestingopt <- mean(abs(eopt / testing$Suhu) * 100)
+
+akurasitesting_opt <- matrix(c(SSEtestingopt, MSEtestingopt, MAPEtestingopt), nrow = 3,
+                             dimnames = list(c("SSE","MSE","MAPE"), "Nilai SES Uji"))
+akurasitesting_opt
+```
+
+Berdasarkan evaluasi terhadap 20 hari data uji, model SES menghasilkan nilai rata-rata persentase kesalahan (MAPE) sebesar 3,75% dengan MSE sebesar 1,70. Artinya, tingkat akurasi prediksi model mencapai lebih dari 96% terhadap kondisi suhu riil di lapangan. Karena persentase penyimpangannya sangat kecil (jauh di bawah 10%), model SES ini terbukti andal dan sangat layak digunakan untuk memproyeksikan suhu Kota Bogor pada periode berikutnya.
+
+# Double Exponential Smoothing (DES)
+Berbeda dengan SES yang hanya memuluskan nilai rata-rata, metode Double Exponential Smoothing (DES) atau metode Holt dirancang untuk data yang memiliki pola tren. Metode ini bekerja melalui dua tahapan pemulusan sekaligus, yaitu pemulusan untuk komponen dasar (level) dan komponen perubahan tren. Pada pemodelan ini, nilai parameter pemulusan dicari secara otomatis oleh sistem untuk mendapatkan kombinasi nilai galat terkecil.
+```{r}
+# Lamda dan gamma optimum (gamma=FALSE berarti mengabaikan unsur musiman, berfokus pada Tren)
+des.opt <- HoltWinters(train.ts, gamma = FALSE)
+ramalandesopt <- forecast(des.opt, h=20)
+
+plot(des.opt, main="Double Exponential Smoothing (Optimum)")
+```
+
+Berdasarkan grafik hasil pemulusan DES di atas:
+
+- Garis Hitam (Observed): Menunjukkan data aktual suhu harian selama 80 hari data latih.
+
+- Garis Merah (Fitted): Merupakan nilai estimasi model yang berusaha mengikuti pergerakan data riil.
+
+Terlihat bahwa garis merah sangat sensitif terhadap lonjakan dan penurunan suhu harian. Karena algoritma DES selalu mengasumsikan adanya komponen arah (tren), fluktuasi acak jangka pendek cenderung dibaca sebagai awal dari tren baru. Hal ini membuat model rentan memproyeksikan tren semu pada data suhu yang sebenarnya berpola konstan/horizontal.
+
+## Akurasi Data Latih
+```{r}
+ssedes.train_opt <- des.opt$SSE
+msedes.train_opt <- ssedes.train_opt/length(train.ts)
+sisaandes_opt <- ramalandesopt$residuals
+
+mapedes.train_opt <- sum(abs(sisaandes_opt[3:length(train.ts)]/train.ts[3:length(train.ts)])*100)/length(train.ts)
+
+akurasides.opt <- matrix(c(ssedes.train_opt, msedes.train_opt, mapedes.train_opt))
+row.names(akurasides.opt)<- c("SSE", "MSE", "MAPE")
+colnames(akurasides.opt) <- c("Akurasi DES Optimum")
+akurasides.opt
+```
+
+Evaluasi pada 80 hari data latih menunjukkan bahwa model Double Exponential Smoothing (DES) memiliki kemampuan penyesuaian yang sangat tinggi terhadap data historis. Hal ini dibuktikan dengan rata-rata persentase kesalahan (MAPE) yang rendah, yaitu sebesar 2,47% dengan nilai MSE sebesar 0,69. Nilai kesalahan yang berada jauh di bawah ambang batas 10% ini mengindikasikan bahwa model mampu mempelajari pola suhu masa lalu dengan sangat presisi.
+
+## Akurasi Data Uji
+```{r}
+selisihdesopt <- as.numeric(ramalandesopt$mean) - as.numeric(testing$Suhu)
+
+SSEtestingdesopt <- sum(selisihdesopt^2)
+MSEtestingdesopt <- SSEtestingdesopt/length(testing$Suhu)
+MAPEtestingdesopt <- sum(abs(selisihdesopt/testing$Suhu)*100)/length(testing$Suhu)
+
+akurasitestingdes <- matrix(c(SSEtestingdesopt, MSEtestingdesopt, MAPEtestingdesopt), nrow=3)
+row.names(akurasitestingdes)<- c("SSE", "MSE", "MAPE")
+colnames(akurasitestingdes) <- c("DES Optimum")
+akurasitestingdes
+```
+
+Pada pengujian terhadap 20 hari data masa depan, model DES tetap mempertahankan akurasi yang sangat baik dengan nilai MSE sebesar 0,80 dan MAPE sebesar 2,60%. Tingkat kesalahan ini menunjukkan bahwa deviasi hasil ramalan suhu hanya sekitar 2,6% dari suhu aktual di lapangan (tingkat ketepatan di atas 97%). Kinerja pada fase uji yang stabil dan tidak berbeda jauh dari fase pelatihan menandakan bahwa model tidak mengalami gejala overfitting.
+
+# Perbandingan SES dengan DES
+```{r}
+MSEfull <- matrix(c(MSEtestingopt, MSEtestingdesopt), nrow=1, ncol=2)
+row.names(MSEfull) <- c("MSE Data Uji")
+colnames(MSEfull) <- c("SES Optimum", "DES Optimum")
+MSEfull
+```
+
+Perbandingan nilai Mean Squared Error (MSE) pada data uji menunjukkan bahwa model DES Optimum menghasilkan nilai galat yang lebih rendah (0,80) dibandingkan model SES Optimum (1,69). Hal ini terjadi karena pada rentang 20 hari data uji, pergerakan suhu aktual sempat mengalami kenaikan bertahap. Komponen penyesuaian tren pada model DES mampu menangkap kenaikan tersebut dengan lebih responsif, sehingga menghasilkan penyimpangan nilai yang lebih kecil pada data uji dibandingkan proyeksi mendatar milik SES.
+
+# Seasonal Smoothing
+Untuk menerapkan metode pemulusan musiman (Winter's Method), data deret waktu perlu didefinisikan bersama periode perulangannya. Mengingat pencatatan data dilakukan setiap hari, kita mengasumsikan adanya potensi siklus mingguan dengan menetapkan parameter frekuensi sebanyak 7 hari (frequency = 7). Tahapan ini bertujuan untuk menguji apakah terdapat pola fluktuasi suhu yang berulang secara teratur setiap minggunya.
+
+```{r}
+training_season.ts <- ts(training$Suhu, frequency = 7)
+testing_season.ts <- ts(testing$Suhu, frequency = 7)
+```
+
+## Winter Aditif
+### Pemulusan dan Peramalan
+```{r}
+winter_add <- HoltWinters(training_season.ts, seasonal = "additive")
+forecast_add <- predict(winter_add, n.ahead = 20)
+```
+
+### Plot Deret Waktu
+```{r}
+plot(training_season.ts, main="Winter Aditif (Musiman Mingguan)", type="l", col="black", xlim=c(1,15))
+lines(winter_add$fitted[,1], type="l", col="blue")
+lines(forecast_add, type="l", col="red")
+legend("topleft", c("Aktual", "Fitted", "Ramalan"), col=c("black","blue","red"), lty=1, cex=0.7)
+```
+
+Berdasarkan grafik hasil pemodelan Winter Aditif di atas:
+
+- Garis Hitam (Aktual): Menunjukkan data riil suhu harian selama fase pelatihan.
+
+- Garis Biru (Fitted): Merupakan hasil penyesuaian model yang berupaya merekonstruksi pola suhu berdasarkan kombinasi tren dan perulangan mingguan.
+
+- Garis Merah (Ramalan): Menunjukkan hasil proyeksi untuk 20 hari ke depan. Terlihat bahwa garis ramalan membentuk pola gelombang berulang secara teratur setiap 7 hari.
+
+Pembentukan gelombang musiman ini mencerminkan sifat dasar metode Winter yang selalu mengekstrapolasi ritme mingguan ke masa depan. Model ini mengasumsikan bahwa pola fluktuasi suhu pada hari-hari tertentu dalam sepekan akan selalu berulang dengan karakteristik yang sama pada minggu-minggu berikutnya.
+
+### Akurasi Data Uji
+```{r}
+selisih_add <- as.numeric(forecast_add) - as.numeric(testing$Suhu)
+MSE_test_add <- mean(selisih_add^2)
+MAPE_test_add <- mean(abs(selisih_add/testing$Suhu)*100)
+
+akurasi_add <- matrix(c(MSE_test_add, MAPE_test_add), nrow=2, dimnames = list(c("MSE","MAPE"), "Winter Aditif Uji"))
+akurasi_add
+```
+
+Pengujian model Winter Aditif pada 20 data uji menghasilkan nilai rata-rata persentase kesalahan (MAPE) sebesar 3,70% dengan nilai MSE sebesar 1,63. Secara kuantitatif, nilai MAPE di bawah 10% ini masih tergolong sangat baik. Namun, jika ditinjau secara kontekstual, penetapan siklus 7 harian pada fenomena suhu cuaca Kota Bogor bersifat artifisial, karena dinamika suhu harian di alam tidak dipengaruhi oleh ritme hari kalender (Senin–Minggu). Meskipun demikian, model ini secara matematis mampu menghasilkan estimasi yang cukup dekat dengan data pengujian.
+
+## Winter Multiplikatif
+### Pemulusan dan Peramalan
+```{r}
+winter_mult <- HoltWinters(training_season.ts, seasonal = "multiplicative")
+forecast_mult <- predict(winter_mult, n.ahead = 20)
+```
+
+### Plot Deret Waktu
+```{r}
+plot(training_season.ts, main="Winter Multiplikatif (Musiman Mingguan)", type="l", col="black", xlim=c(1,15))
+lines(winter_mult$fitted[,1], type="l", col="blue")
+lines(forecast_mult, type="l", col="red")
+legend("topleft", c("Aktual", "Fitted", "Ramalan"), col=c("black","blue","red"), lty=1, cex=0.7)
+```
+
+Visualisasi hasil pemodelan Winter Multiplikatif menunjukkan karakteristik yang serupa dengan model aditif:
+
+- Garis Hitam (Aktual): Menggambarkan fluktuasi harian suhu riil selama 80 hari pelatihan.
+
+- Garis Biru (Fitted): Berusaha menyesuaikan bentuk kurva dengan memperhitungkan proporsi musiman terhadap level dasar data.
+
+- Garis Merah (Ramalan): Memproyeksikan suhu 20 hari ke depan dengan pola gelombang berulang mingguan yang proporsional.
+
+Karena model multiplikatif mengalikan efek musiman dengan level tren, pola proyeksinya membentuk ritme berulang yang teratur. Pada praktiknya, dinamika suhu atmosfer Kota Bogor lebih banyak dipengaruhi oleh variabilitas acak iklim harian daripada faktor pengali mingguan yang deterministik.
+
+### Akurasi Data Uji
+```{r}
+selisih_mult <- as.numeric(forecast_mult) - as.numeric(testing$Suhu)
+MSE_test_mult <- mean(selisih_mult^2)
+MAPE_test_mult <- mean(abs(selisih_mult/testing$Suhu)*100)
+
+akurasi_mult <- matrix(c(MSE_test_mult, MAPE_test_mult), nrow=2, dimnames = list(c("MSE","MAPE"), "Winter Multi Uji"))
+akurasi_mult
+```
+
+Evaluasi peramalan model Winter Multiplikatif pada 20 hari data uji menghasilkan nilai rata-rata persentase kesalahan (MAPE) sebesar 3,76% dan nilai MSE sebesar 1,68. Secara kuantitatif, performa akurasi model ini tergolong sangat baik (kesalahan jauh di bawah 10%) dan memiliki tingkat galat yang relatif setara dengan metode pemulusan tunggal. Meskipun demikian, karena data suhu harian di lapangan tidak menunjukkan pola multiplikatif yang nyata, kompleksitas penambahan parameter musiman pada model ini tidak memberikan peningkatan akurasi yang signifikan bila dibandingkan dengan model pemulusan yang lebih sederhana.
+
+# Kesimpulan
+```{r}
+# Rekapitulasi MSE Data Uji Semua Metode
+Rekap_Akurasi <- data.frame(
+  Metode = c("SMA (n=4)", "DMA (n=4)", "SES (Optimum)", "DES (Optimum)", "Winter Aditif", "Winter Multiplikatif"),
+  MSE_Testing = c(MSE_test.sma, MSE_test.dma, MSEtestingopt, MSEtestingdesopt, MSE_test_add, MSE_test_mult)
+)
+
+knitr::kable(Rekap_Akurasi, caption = "Perbandingan Nilai Error MSE Data Uji dari Seluruh Metode")
+```
+
+Berdasarkan hasil perbandingan nilai Mean Squared Error (MSE) pada fase pengujian (20 hari data uji), metode peramalan terbaik untuk data Suhu Rata-rata Kota Bogor adalah Double Exponential Smoothing (DES) Optimum dengan nilai galat terendah sebesar 0,8020.
+
+Alasan dan Pembahasan:
+
+1. Keunggulan Metrik Kuantitatif: Model DES Optimum menghasilkan tingkat kesalahan peramalan yang paling minimum di antara keenam metode yang diuji (DES: 0,80 vs Winter Aditif: 1,63; Winter Multiplikatif: 1,68; SES: 1,70; SMA: 2,09; DMA: 2,73).
+
+2. Responsif terhadap Dinamika Data Uji: Pada rentang hari ke-81 hingga 100 (data uji), suhu aktual di lapangan sempat mengalami tren kenaikan bertahap dari 24,1°C menuju 28,2°C. Komponen penyesuaian tren pada metode DES mampu merespons dan mengikuti kenaikan suhu tersebut secara fleksibel.
+
+3. Keterbatasan Proyeksi Mendatar pada Model Tunggal: Metode peramalan konstan seperti SMA dan SES memproyeksikan garis lurus mendatar (flat forecast). Karena suhu aktual pada periode uji bergerak naik, proyeksi mendatar tersebut menghasilkan selisih kesalahan yang lebih besar dibandingkan proyeksi adaptif DES.
+
+4. Ketidakcocokan DMA dan Asumsi Musiman Mingguan: Metode DMA menghasilkan kesalahan terbesar (MSE 2,73) karena proyeksi penurunannya yang terlalu kaku (rigid). Sementara itu, metode Holt-Winters Musiman (Aditif maupun Multiplikatif) menambahkan kompleksitas perhitungan siklus 7 hari yang tidak memberikan peningkatan akurasi signifikan dibandingkan DES.
