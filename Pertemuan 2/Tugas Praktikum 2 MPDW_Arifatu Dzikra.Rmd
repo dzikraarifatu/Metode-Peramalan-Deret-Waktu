@@ -30,7 +30,7 @@ library("ggplot2")
 Analisis ini difokuskan pada 100 data observasi pertama dari dataset Suhu Rata-rata Kota Bogor.
 ```{r}
 # Mengimpor data
-filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/mpdw/Pertemuan 2/data suhu bogor 500 akhir.xlsx"
+filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/mpdw/Data/data suhu bogor 500 akhir.xlsx"
 data_full <- import(filepath)
 
 # Mengambil 100 data pertama
