@@ -1,19 +1,22 @@
 ---
 title: "Tugas Pertemuan 3 - Regresi dengan Peubah Lag"
-author: "Nama Anda"
+author: "Arifatu Dzikra"
 date: "`r Sys.Date()`"
 output:
   html_document:
-    theme: yeti
-    highlight: kate
+    theme: flatly
+    highlight: tango
     toc: true
-    toc_float: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
     code_folding: show
+    df_print: paged
 ---
 
+# Memanggil Library yang Akan Digunakan
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
-# Pastikan packages berikut sudah ter-install sebelumnya
 library(dLagM)
 library(dynlm)
 library(MLmetrics)
@@ -23,12 +26,11 @@ library(rio)
 library(ggplot2)
 ```
 
-1. Persiapan dan Impor Data
+# 1. Persiapan dan Impor Data
 Kita akan mengimpor data NewDelhi_Air_quality.csv langsung dari direktori lokal. Variabel dependen ($Y$) adalah Indeks Kualitas Udara (AQI), dan variabel independen ($X$) yang dipilih adalah pm25.
 ```{r}
-# 1. Impor data dari path lokal komputer
-filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 3/NewDelhi_Air_quality.csv"
-data_udara <- read.csv(filepath)
+# 1. Impor data 
+data_udara <- read.csv("NewDelhi_Air_quality.csv")
 
 # 2. Subset variabel Y (AQI) dan X (pm25)
 data_sub <- data_udara[, c("AQI", "pm25")]
@@ -47,7 +49,9 @@ test.ts <- ts(test)
 data.ts <- ts(data_sub)
 ```
 
-2. Model Koyck
+Kode tersebut memulai proses dengan mengimpor file NewDelhi_Air_quality.csv dari direktori lokal ke dalam R, kemudian mengambil subset variabel penting yaitu Indeks Kualitas Udara sebagai peubah dependen Y dan konsentrasi PM2.5 sebagai peubah independen X. Selanjutnya, data dibagi secara proporsional menjadi 80% data latih sebanyak 58 baris untuk pembentukan model dan 20% data uji sebanyak 14 baris untuk evaluasi peramalan. Terakhir, seluruh subset data dikonversi ke dalam objek deret waktu menggunakan fungsi ts agar urutan kronologis antar-baris data dapat dikenali secara konsisten oleh fungsi pemodelan lag di tahap berikutnya.
+
+# 2. Model Koyck
 Model Koyck mengasumsikan bahwa pengaruh variabel bebas ($X$) akan menurun secara geometrik seiring berjalannya waktu. Pengaruh masa lalu tersebut direduksi ke dalam variabel lag dari peubah terikat ($Y_{t-1}$).
 ```{r}
 # Pemodelan Koyck
@@ -62,31 +66,33 @@ mape.koyck <- MAPE(fore.koyck$forecasts, test$Yt) * 100
 cat("MAPE Model Koyck: ", round(mape.koyck, 2), "%\n")
 ```
 
-3. Distributed Lag Model (DLM)
-Pada pendekatan ini, kita mencari panjang lag optimum dari variabel independen ($X$) yang memberikan nilai Akaike Information Criterion (AIC) terkecil.
-Pencarian Lag Optimum ($q$)
+Berdasarkan hasil pemodelan, diperoleh koefisien geometrik dengan nilai parameter alpha sebesar 36.95, beta sebesar -0.57, dan parameter lag (phi) sebesar 0.89 yang menunjukkan adanya pengaruh kuat dari nilai AQI periode sebelumnya terhadap kondisi saat ini. Peramalan yang dievaluasi menggunakan data testing menghasilkan nilai Mean Absolute Percentage Error (MAPE) sebesar 10.55%, yang mengindikasikan bahwa model Koyck memiliki performa peramalan yang sangat baik dan layak digunakan karena berada di bawah batas kriteria 20%.
+
+# 3. Distributed Lag Model (DLM)
+Tahapan ini menggunakan Distributed Lag Model (DLM) untuk memodelkan hubungan antara peubah bebas dan terikat dengan memperhitungkan pengaruh dari beberapa periode lag sebelumnya, di mana panjang lag optimum ditentukan secara otomatis berdasarkan nilai kriteria informasi AIC terkecil.
 ```{r}
-# Uji lag 1 hingga 10 untuk mencari AIC terbaik
-pencarian.dlm <- finiteDLMauto(formula = Yt ~ Xt, 
-                               data = data.frame(train), 
+# 1. Cari lag optimum menggunakan finiteDLMauto
+pencarian.dlm <- finiteDLMauto(x = train$Xt, y = train$Yt, 
                                q.min = 1, q.max = 10, 
-                               model.type = "dlm", error.type = "AIC", trace = TRUE)
+                               model.type = "dlm", error.type = "AIC", trace = FALSE)
 
-# Membangun model dengan lag optimum berdasarkan hasil pencarian di atas
-# Anda bisa menyesuaikan angka q di bawah ini sesuai output AIC terkecil dari trace (misal q=5)
+# 2. Ambil nilai q optimum dan buat model dlm resminya
+q_opt_dlm <- pencarian.dlm$q
+cat("Lag optimum DLM terpilih:", q_opt_dlm, "\n")
 
-model.dlm.opt <- dlm(x = train$Xt, y = train$Yt, q = 3) # Asumsi q=3 dari running uji manual
+model.dlm.opt <- dlm(x = train$Xt, y = train$Yt, q = q_opt_dlm)
 summary(model.dlm.opt)
 
-# Peramalan dan MAPE
-fore.dlm <- forecast(model = model.dlm.opt, x = test$Xt, h = nrow(test))
+# 3. Peramalan dan perhitungan MAPE
+fore.dlm <- dLagM::forecast(model = model.dlm.opt, x = test$Xt, h = nrow(test))
 mape.dlm <- MAPE(fore.dlm$forecasts, test$Yt) * 100
 cat("MAPE Model DLM Optimum: ", round(mape.dlm, 2), "%\n")
 ```
 
-4. Autoregressive Distributed Lag (ARDL)
-ARDL menggabungkan pengaruh dari lag peubah independen ($X$) dan peubah dependen ($Y$).
-Pencarian Kombinasi Orde $(p, q)$ Optimum
+Berdasarkan hasil pencarian otomatis menggunakan fungsi finiteDLMauto, model mengevaluasi berbagai panjang lag hingga orde 10 dan memilih model dengan nilai Akaike Information Criterion (AIC) dan Bayesian Information Criterion (BIC) paling optimum. Berdasarkan model DLM optimum tersebut, dilakukan proses peramalan untuk periode data testing, yang menghasilkan nilai Mean Absolute Percentage Error (MAPE) sebesar 14.09%. Angka ini menunjukkan bahwa model DLM memiliki tingkat akurasi peramalan yang baik dalam memprediksi kualitas udara karena berada di bawah batas toleransi kesalahan 20%.
+
+# 4. Autoregressive Distributed Lag (ARDL)
+Tahapan ini membangun model Autoregressive Distributed Lag (ARDL) yang menggabungkan pengaruh dari lag peubah independen ($X$) maupun peubah dependen ($Y$) secara simultan, di mana kombinasi orde lag optimum $(p, q)$ dicari secara otomatis menggunakan kriteria AIC terkecil.
 ```{r}
 # Pencarian model ARDL optimum berdasarkan AIC
 model.ardl.opt <- ardlBoundOrders(data = data.frame(train), ic = "AIC", formula = Yt ~ Xt)
@@ -102,18 +108,21 @@ p_opt_ardl <- which(model.ardl.opt$Stat.table[[q_opt_ardl]] == min(model.ardl.op
 cat("Lag Y optimum (q) ARDL :", q_opt_ardl, "\n")
 cat("Lag X optimum (p) ARDL :", p_opt_ardl, "\n")
 
-# Membangun Model ARDL (menggunakan 1 untuk p dan q jika iterasi gagal mendeteksi, sesuaikan dengan output aktual)
-model.ardl <- ardlDlm(formula = Yt ~ Xt, data = data.frame(train), p = 1, q = 1)
-summary(model.ardl)
+# Membangun Model ARDL dengan lag p = 1 dan q = 1
+model.ardl <- ardlDlm(formula = Yt ~ Xt, data = data.frame(train), 
+                      p = 1, q = 1)
 
 # Peramalan dan MAPE
 fore.ardl <- forecast(model = model.ardl, x = test$Xt, h = nrow(test))
 mape.ardl <- MAPE(fore.ardl$forecasts, test$Yt) * 100
 cat("MAPE Model ARDL Optimum: ", round(mape.ardl, 2), "%\n")
+summary(model.ardl)
 ```
 
-5. Uji Asumsi Sisaan Model
-Untuk melakukan uji diagnostik sisaan secara praktis, model direkonstruksi menggunakan dynlm. Berikut adalah contoh pengujian pada bentuk ARDL(1,1).
+Berdasarkan penentuan orde lag spesifik $p=1$ dan $q=1$, model ARDL dibangun untuk menangkap dinamika peubah lag. Estimasi parameter menghasilkan nilai Adjusted R-squared sebesar 0.8175, menunjukkan bahwa model mampu menjelaskan keragaman data dengan sangat baik. Evaluasi peramalan pada data testing menghasilkan nilai Mean Absolute Percentage Error (MAPE) sebesar 10.64%, yang mengindikasikan tingkat akurasi peramalan yang tinggi dan sangat layak digunakan.
+
+# 5. Uji Asumsi Sisaan Model
+Tahapan ini melakukan pengujian diagnostik formal terhadap sisaan model ARDL(1,1) yang direkonstruksi menggunakan fungsi dynlm untuk memastikan terpenuhinya asumsi-asumsi dasar regresi deret waktu.
 ```{r}
 # Membentuk ulang model ARDL(1,1) ke dalam format regresi standar
 model_dynlm <- dynlm(Yt ~ Xt + L(Xt) + L(Yt), data = train.ts)
@@ -130,10 +139,11 @@ bptest(model_dynlm)
 # H0: Sisaan berdistribusi normal
 shapiro.test(residuals(model_dynlm))
 ```
-Apabila p-value dari ketiga uji di atas bernilai lebih besar dari taraf nyata $\alpha = 0,05$, maka model telah memenuhi seluruh asumsi regresi (bebas autokorelasi, ragam homogen, dan sisaan menyebar normal).
 
-6. Perbandingan Performa Peramalan
-Bagian ini membandingkan kinerja model Koyck, DLM, dan ARDL pada data uji, kemudian menampilkannya dalam plot deret waktu.
+Berdasarkan hasil konsol R, uji Durbin-Watson menghasilkan nilai p-value sebesar $2.263 \times 10^{-5}$ yang berada di bawah taraf nyata 0.05, mengindikasikan adanya pelanggaran asumsi berupa autokorelasi pada sisaan. Di sisi lain, uji Breusch-Pagan menghasilkan p-value 0.8885 dan uji Shapiro-Wilk menghasilkan p-value 0.4439, di mana keduanya bernilai lebih besar dari 0.05 sehingga gagal menolak $H_0$, yang berarti sisaan model telah memenuhi asumsi ragam homogen atau homoskedastik serta menyebar normal.
+
+# 6. Perbandingan Performa Peramalan
+Tahapan terakhir ini menyusun ringkasan komparasi kinerja seluruh model peramalan, meliputi Koyck, DLM, dan ARDL berdasarkan nilai akurasi eror serta visualisasi grafik garis deret waktu pada data testing.
 ```{r}
 # Kompilasi MAPE
 tabel_akurasi <- data.frame(
@@ -157,3 +167,23 @@ legend("topleft", legend = c("Data Aktual", "Prediksi Koyck", "Prediksi DLM", "P
        col = c("black", "red", "blue", "green"), lty = 1, pch = c(1, 16, 17, 18), 
        cex = 0.8, inset = 0.02)
 ```
+
+Berdasarkan tabel kompilasi akurasi, model Koyck menghasilkan nilai MAPE terendah yaitu 10.55%, disusul secara sangat tipis oleh model ARDL optimum sebesar 10.64%, dan model DLM optimum sebesar 14.09%. Seluruh model terbukti memiliki performa peramalan yang sangat baik karena berada di bawah batas toleransi kesalahan 20%, di mana model Koyck menjadi pendekatan yang paling akurat untuk memprediksi Indeks Kualitas Udara pada data uji, yang juga didukung oleh visualisasi plot di mana garis merah (Koyck) dan hijau (ARDL) tampak paling mendekati tren garis hitam data aktual.
+
+# Kesimpulan
+## 1. Model Koyck
+Berhasil diterapkan untuk menangkap pengaruh lag secara geometris dan menghasilkan nilai Mean Absolute Percentage Error (MAPE) sebesar 10.55%, yang menunjukkan performa peramalan sangat baik karena berada di bawah batas toleransi 20%.
+
+## 2. Distributed Lag Model (DLM)
+Berhasil dioptimalkan melalui pencarian panjang lag optimum menggunakan kriteria AIC, serta menghasilkan nilai MAPE sebesar 14.09%, yang menandakan tingkat akurasi peramalan yang baik.
+
+## 3. Autoregressive Distributed Lag (ARDL)
+Berhasil dibangun dengan mengintegrasikan lag peubah dependen dan independen secara simultan, menghasilkan nilai MAPE sebesar 10.64%, yang menunjukkan tingkat akurasi peramalan yang sangat tinggi.
+
+## 4. Uji Asumsi Sisaan
+Berdasarkan pengujian diagnostik formal pada model, sisaan telah memenuhi asumsi homoskedastisitas (ragam ragam homogen melalui uji Breusch-Pagan) dan normalitas (melalui uji Shapiro-Wilk), meskipun masih terdeteksi adanya pelanggaran asumsi autokorelasi berdasarkan uji Durbin-Watson.
+
+## 5. Perbandingan dan Model Terbaik
+Berdasarkan komparasi akurasi pada data testing, Model Koyck terpilih sebagai model terbaik untuk peramalan Indeks Kualitas Udara (AQI) karena menghasilkan nilai MAPE terendah (10.55%), didukung oleh visualisasi grafik yang garis prediksinya paling mendekati tren data aktual.
+
+Secara keseluruhan, penerapan metode regresi peubah lag pada data kualitas udara New Delhi membuktikan bahwa penyertaan unsur historis efektif memberikan hasil prediksi yang andal. Meskipun terdapat tantangan berupa pelanggaran asumsi autokorelasi pada sisaan, tingkat kesalahan peramalan yang konsisten rendah dari ketiga model mengonfirmasi bahwa pendekatan deret waktu ini sangat layak digunakan untuk studi kasus lingkungan serupa.
