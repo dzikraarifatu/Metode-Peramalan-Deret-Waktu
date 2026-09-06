@@ -1,0 +1,661 @@
+---
+title: "Tugas Pertemuan 3 - Analisis ARDL Data Curah Hujan"
+author: "Arifatu Dzikra"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: pygments
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
+    code_folding: show
+    code_download: true
+    df_print: paged
+---
+
+# Library
+Tahap ini memuat seluruh pustaka (library) R yang diperlukan untuk pengolahan data deret waktu, eksplorasi statistik, visualisasi, hingga pemodelan ARDL.
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(moments)
+library(ggcorrplot)
+library(corrplot)
+library(forecast)
+library(urca)
+library(tseries)
+library(dynlm)
+library(dLagM)
+library(lmtest)
+library(car)
+library(ARDL)
+library(tidyr)
+library(MASS)
+library(patchwork)
+library(nardl)
+library(writexl)
+library(openxlsx)
+library(dynamac)
+library(e1071)
+library(MLmetrics)
+```
+Pustaka-pustaka di atas diaktifkan secara simultan untuk mendukung seluruh tahapan analisis dari eksplorasi hingga evaluasi model.
+
+# Import Data
+Tahap ini mengimpor dataset harian dari file Excel lokal ke dalam lingkungan R dan membatasi variabel menjadi peubah terikat tunggal yaitu Tinggi Muka Air ($\text{TMA}$) sebagai $Y$ dan peubah bebas tunggal yaitu Curah Hujan ($\text{PC}$) sebagai $X$.
+```{r}
+dataset <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 3/Data_Harian_2022_2024.xlsx")
+data_sub <- dataset %>% 
+  dplyr::select(Date, TMA, PC) %>%
+  rename(Yt = TMA, Xt = PC)
+str(data_sub)
+```
+
+Data harian periode 1 Januari 2022 - 31 Maret 2025 dengan fokus pada pemodelan bivariat antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$).
+
+# Eksplorasi Data
+Bagian ini mengeksplorasi karakteristik data melalui ringkasan statistik deskriptif, ukuran penyebaran, kemencengan, kurtosis, visualisasi deret waktu, serta matriks korelasi antara $\text{TMA}$ dan $\text{PC}$.
+## Statistika Deskriptif
+### Statistika Deskriptif Dasar
+Tahap ini melihat ukuran pemusatan dan penyebaran dasar dari peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+summary(data_sub[, c("Yt", "Xt")])
+```
+
+### Standard Deviation
+Tahap ini menghitung simpangan baku untuk mengetahui tingkat keragaman data harian pada peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+sd_tma <- sd(data_sub$Yt, na.rm = TRUE)
+sd_pc <- sd(data_sub$Xt, na.rm = TRUE)
+cat("Standard Deviation TMA:", sd_tma, "\n")
+cat("Standard Deviation PC:", sd_pc, "\n")
+```
+
+* Tinggi Muka Air ($\text{TMA}$) memiliki simpangan baku sebesar $39,3$, menunjukkan sebaran data respon yang cukup bervariasi.
+
+* Curah Hujan ($\text{PC}$) memiliki simpangan baku sebesar $8,84$, menunjukkan karakteristik fluktuasi harian curah hujan.
+
+### Skewness
+Tahap ini menghitung koefisien kemencengan (skewness) untuk mengevaluasi tingkat kesimetrisan distribusi data peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+skew_tma <- skewness(data_sub$Yt, na.rm = TRUE)
+skew_pc <- skewness(data_sub$Xt, na.rm = TRUE)
+cat("Skewness TMA:", skew_tma, "\n")
+cat("Skewness PC:", skew_pc, "\n")
+```
+
+* Jika skewness $\approx 0$, berarti distribusi simetris.
+
+* Curah Hujan ($\text{PC}$) memiliki nilai skewness yang tinggi dan bernilai positif, menandakan distribusi data sangat miring ke kanan (right-skewed) akibat adanya hari-hari dengan curah hujan ekstrem.
+
+### Kurtosis
+Tahap ini menghitung nilai kurtosis guna mengetahui tingkat keruncingan distribusi peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+kurt_tma <- kurtosis(data_sub$Yt, na.rm = TRUE)
+kurt_pc <- kurtosis(data_sub$Xt, na.rm = TRUE)
+cat("Kurtosis TMA:", kurt_tma, "\n")
+cat("Kurtosis PC:", kurt_pc, "\n")
+```
+
+* Jika kurtosis $\approx 3$, berarti distribusi normal.
+
+* PC atau curah hujan Kota Bogor memiliki kurtosis sebesar $34,47$, nilai kurtosis yang ekstrem menandakan adanya lonjakan tinggi dalam periode tertentu.
+
+## Plot Time Series TMA dan PC
+Tahap ini menyajikan grafik garis deret waktu untuk melihat pola pergerakan harian dari peubah $\text{TMA}$ dan $\text{PC}$ secara visual.
+```{r}
+data_long <- data_sub %>%
+  pivot_longer(cols = c(Yt, Xt),
+               names_to = "Variabel",
+               values_to = "Nilai") %>%
+  mutate(Variabel = ifelse(Variabel == "Yt", "TMA (Respon)", "PC (Curah Hujan)"))
+
+ggplot(data_long, aes(x = Date, y = Nilai)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ Variabel, scales = "free_y", ncol = 1) + 
+  labs(title = "Time Series Plot TMA dan PC",
+       x = "Date",
+       y = "Value") +
+  theme_minimal()
+```
+
+* Berdasarkan plot time series di atas, peubah Curah Hujan ($\text{PC}$) menunjukkan fluktuasi yang konstan di sekitar nilai rendah dengan beberapa lonjakan ekstrem yang tajam secara berkala.
+
+* Peubah Tinggi Muka Air ($\text{TMA}$) memperlihatkan pola pergerakan naik turun yang berfluktuasi sepanjang waktu tanpa tren linier yang kaku, mengindikasikan adanya dinamika merespon kondisi musim atau curah hujan.
+
+## Matriks Korelasi
+Pemeriksaan korelasi linear sederhana dilakukan untuk melihat sejauh mana hubungan awal antara peubah bebas dan peubah terikat.
+```{r}
+cor_val <- cor(data_sub$Yt, data_sub$Xt, use = "complete.obs")
+cat("Koefisien Korelasi antara TMA dan PC:", cor_val, "\n")
+```
+
+* Berdasarkan perhitungan di atas, diperoleh nilai koefisien korelasi antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$) sebesar $0,3946$.
+
+* Nilai korelasi positif menunjukkan adanya hubungan searah yang moderat antara besarnya curah hujan harian dengan kenaikan tinggi muka air.
+
+# Data Splitting
+Bagian ini membagi keseluruhan dataset menjadi data pelatihan (train) dan data pengujian (test) dengan proporsi tertentu untuk keperluan evaluasi model peramalan.
+```{r}
+total_rows <- nrow(data_sub)
+test_size <- 153
+
+train_index <- 1:(total_rows - test_size)
+test_index  <- (total_rows - test_size + 1):total_rows
+
+train <- data_sub[train_index, ]
+test  <- data_sub[test_index, ]
+
+cat("Jumlah data train:", nrow(train), "\n")
+cat("Jumlah data test:", nrow(test), "\n")
+```
+
+* Berdasarkan pola data, data dibagi menjadi data train sebesar $86\%$ dari total data atau sebanyak $943$ data dan data test sebesar $14\%$ dari total data atau sebanyak $153$ data.
+
+**Time Series Data Split Plot**
+***Plot Time Series Gabungan (TMA dan PC) Train vs Test***
+Tahap ini memvisualisasikan pembagian data latih dan data uji pada peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+combined_data <- bind_rows(
+  train %>% mutate(DataType = "Train"),
+  test %>% mutate(DataType = "Test")
+)
+
+data_long_split <- combined_data %>%
+  dplyr::select(Date, Yt, Xt, DataType) %>%
+  pivot_longer(
+    cols = c(Yt, Xt),
+    names_to = "Variabel",
+    values_to = "Nilai"
+  ) %>%
+  mutate(Variabel = ifelse(Variabel == "Yt", "TMA (Respon)", "PC (Curah Hujan)"))
+
+ggplot(data_long_split, aes(x = Date, y = Nilai, color = DataType)) +
+  geom_line() +
+  facet_wrap(~ Variabel, scales = "free_y", ncol = 1) +
+  scale_color_manual(
+    values = c("Train" = "#00BFC4", "Test" = "#F8766D")
+  ) +
+  labs(
+    title = "Time Series Plot (Train vs. Test)",
+    x = "Date",
+    y = "Value",
+    color = "Data Type"
+  ) +
+  theme_minimal()
+```
+
+# Kestasioneran Data dan CCF
+Bagian ini menganalisis kestasioneran data melalui plot ACF, PACF, uji formal Augmented Dickey-Fuller (ADF), serta hubungan lag melalui Cross-Correlation Function (CCF).
+## Plot ACF TMA dan PC
+Tahap ini menampilkan plot Autocorrelation Function (ACF) untuk peubah $\text{TMA}$ dan $\text{PC}$ pada data latih.
+```{r}
+acf_TMA <- ggAcf(train$Yt) + labs(title = "ACF TMA")
+acf_PC <- ggAcf(train$Xt) + labs(title = "ACF PC")
+
+combined_acf <- acf_TMA / acf_PC
+combined_acf
+```
+
+Berdasarkan plot ACF untuk $\text{TMA}$ dan $\text{PC}$, terlihat pola peluruhan yang sangat lambat (*slow decay*), yang mengindikasikan bahwa data kedua peubah tidak stasioner dalam rata-rata.
+
+## Plot PACF TMA dan PC
+Tahap ini menampilkan plot Partial Autocorrelation Function (PACF) untuk peubah $\text{TMA}$ dan $\text{PC}$.
+```{r}
+pacf_TMA <- ggPacf(train$Yt) + labs(title = "PACF TMA")
+pacf_PC <- ggPacf(train$Xt) + labs(title = "PACF PC")
+
+combined_pacf <- pacf_TMA / pacf_PC
+combined_pacf
+```
+
+Berdasarkan plot PACF, terlihat adanya pemotongan yang tajam (*cut off*) pada lag pertama, yang memperkuat indikasi ketidakstasioneran dan karakteristik data deret waktu yang belum stasioner.
+
+## Uji ADF
+Tahap ini melakukan pengujian formal Augmented Dickey-Fuller (ADF) untuk menguji kestasioneran data secara statistik.
+### TMA
+```{r}
+adf.test(train$Yt)
+```
+
+TMA stasioner secara uji formal
+
+### PC
+```{r}
+adf.test(train$Xt)
+```
+
+PC stasioner secara uji formal.
+
+## Plot CCF antara TMA dan PC
+Tahap ini melihat korelasi silang antara peubah $\text{TMA}$ dan $\text{PC}$ pada berbagai lag waktu.
+```{r}
+ccf_result <- ccf(train$Yt, train$Xt, lag.max = 10, plot = TRUE, main = "CCF antara TMA dan PC")
+```
+
+Berdasarkan plot Cross-Correlation Function (CCF) di atas, terlihat adanya signifikansi korelasi silang antara $\text{TMA}$ dan $\text{PC}$ pada beberapa lag, yang mengindikasikan bahwa peubah penjelas ($\text{PC}$) memiliki hubungan keterlambatan waktu terhadap peubah respon ($\text{TMA}$).
+
+# First Difference
+## Differencing
+Tahap ini melakukan pembedaan (*differencing*) tingkat pertama pada data latih untuk mengatasi ketidakstasioneran.
+```{r}
+DTMA <- diff(train$Yt, differences = 1)
+DPC <- diff(train$Xt, differences = 1)
+df <- data.frame(DTMA, DPC)
+df.ts <- ts(df)
+head(df)
+```
+
+## Plot ACF
+### DTMA
+Tahap ini menampilkan plot ACF untuk peubah $\text{DTMA}$ hasil differencing pertama.
+```{r}
+acf_DTMA <- ggAcf(DTMA) + labs(title = "ACF DTMA")
+acf_DTMA
+```
+
+Plot ACF DTMA tidak menurun secara perlahan : TMA stasioner
+```{r}
+acf_DTMA <- ggAcf(DTMA) +
+  labs(title = "ACF DTMA") +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)
+  )
+acf_DTMA
+```
+
+Plot ACF DTMA tidak menurun secara perlahan, yang mengindikasikan bahwa data $\text{DTMA}$ telah stasioner dalam rata-rata.
+
+### DPC
+Tahap ini menampilkan plot ACF untuk peubah $\text{DPC}$ hasil differencing pertama.
+```{r}
+acf_DPC <- ggAcf(DPC) + labs(title = "ACF DPC")
+acf_DPC
+```
+
+Plot ACF DPC tidak menurun secara perlahan: PC stasioner
+```{r}
+acf_DPC <- ggAcf(DPC) +
+  labs(title = "ACF DPC") +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)
+  )
+acf_DPC
+```
+
+Plot ACF DPC tidak menurun secara perlahan, yang mengindikasikan bahwa data $\text{DPC}$ telah stasioner dalam rata-rata.
+
+## Plot PACF
+### DTMA
+Tahap ini menampilkan plot PACF untuk peubah $\text{DTMA}$ hasil differencing pertama.
+```{r}
+pacf_DTMA <- ggPacf(DTMA) + labs(title = "PACF DTMA")
+pacf_DTMA
+pacf_DTMA <- ggPacf(DTMA) +
+  labs(title = "PACF DTMA") +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)
+  )
+pacf_DTMA
+```
+
+Lag $p$ antara $1$ sampai $8$, karena PACF memotong (cut-off) setelah lag-$8$.
+
+### DPC
+Tahap ini menampilkan plot PACF untuk peubah $\text{DPC}$ hasil differencing pertama.
+```{r}
+pacf_DPC <- ggPacf(DPC) + labs(title = "PACF DPC")
+pacf_DPC
+pacf_DPC <- ggPacf(DPC) + 
+  labs(title = "PACF DPC") +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)
+  )
+pacf_DPC
+```
+
+Berdasarkan plot PACF untuk peubah $\text{DPC}$, terlihat pola pemotongan (cut-off) pada beberapa lag awal yang mengindikasikan komponen autoregressive (AR) pada data yang telah dibedakan.
+
+## Uji ADF
+### DTMA
+Tahap ini melakukan uji Augmented Dickey-Fuller (ADF) untuk peubah $\text{DTMA}$ guna menguji kestasioneran secara formal setelah differencing pertama.
+```{r}
+adf.test(DTMA)
+```
+
+Nilai p-value sebesar $0.01$ (lebih kecil dari taraf nyata $\alpha = 0.05$), sehingga tolak $H_0$. Hal ini menunjukkan bahwa peubah $\text{TMA}$ (DTMA) sudah stasioner secara uji formal.
+
+### DPC
+Tahap ini melakukan uji Augmented Dickey-Fuller (ADF) untuk peubah $\text{DPC}$ guna menguji kestasioneran secara formal setelah differencing pertama.
+```{r}
+adf.test(DPC)
+```
+
+Nilai p-value sebesar $0.01$ (lebih kecil dari taraf nyata $\alpha = 0.05$), sehingga tolak $H_0$. Hal ini menunjukkan bahwa peubah $\text{PC}$ (DPC) sudah stasioner secara uji formal.
+
+## Plot CCF (Lag Optimum Peubah Penjelas)
+Tahap ini menampilkan plot *Cross-Correlation Function* (CCF) antara peubah $\text{DTMA}$ dan $\text{DPC}$ untuk menentukan lag optimum dari peubah penjelas.
+**Plot** 
+```{r}
+ccf_result1 <- ggCcf(DTMA, DPC, lag.max=9) + ggtitle("CCF antara DTMA dan DPC")
+ccf_result1
+```
+
+Lag optimum $q_1 = 1$
+
+```{r}
+ccf_result1 <- ggCcf(DTMA, DPC, lag.max = 9) +
+  ggtitle("CCF antara DTMA dan DPC") +
+  theme(
+    axis.text.x = element_text(size = 14), 
+    axis.text.y = element_text(size = 14)  
+  )
+ccf_result1
+```
+
+**Nilai Korelasi**
+```{r}
+ccf_result1 <- ccf(DTMA, DPC, lag.max=9, plot = TRUE)
+```
+
+Berdasarkan plot CCF antara peubah $\text{DTMA}$ dan $\text{DPC}$ dengan lag.max sebesar $9$, diperoleh lag optimum peubah penjelas $q_1 = 1$ yang berada di luar batas signifikansi (garis putus-putus biru), menunjukkan adanya hubungan keterlambatan (lag) yang signifikan antara peubah respon dan peubah penjelas setelah dilakukan pembedaan (differencing).
+
+# Dynardl (dynmac)
+## Uji Kointegrasi
+```{r}
+modelbound <- ardlBound(data = train, formula = Yt ~ Xt, case = 2, max.p = 1, max.q = 9)
+```
+
+Hasil Uji Kointegrasi Pesaran, Shin and Smith (2001):
+* Jumlah Pengamatan (Observations): $942$
+* Jumlah Peubah Penjelas (Number of Regressors $k$): $1$
+* Kasus (Case): $2$
+* Nilai F-statistik: $41.63978$
+* Nilai Kritis Taraf Nyata 10%: $I(0) = 3.02$ dan $I(1) = 3.51$
+* Nilai Kritis Taraf Nyata 5%: $I(0) = 3.62$ dan $I(1) = 4.16$
+* Nilai Kritis Taraf Nyata 1%: $I(0) = 4.94$ dan $I(1) = 5.58$
+
+Berdasarkan hasil uji kointegrasi, diperoleh nilai F-statistik sebesar $41.64$. Nilai tersebut jauh lebih besar daripada nilai batas atas (upper bound $I(1)$) pada berbagai taraf nyata, termasuk pada taraf nyata 5% sebesar $4.16$ dan 1% sebesar $5.58$. Hal ini menunjukkan keputusan untuk menolak hipotesis nol ($H_0$), yang mengindikasikan adanya hubungan kointegrasi atau keterkaitan jangka panjang yang signifikan antara peubah respon dan peubah penjelas.
+
+## Model
+### Jangka Pendek
+```{r}
+modelardl <- dynardl(
+  DTMA ~ DPC,
+  data = df,
+  lags = list(
+    "DTMA" = 1:9,
+    "DPC" = 1
+  ),
+  ec = TRUE
+)
+```
+```{r}
+summary(modelardl)
+```
+```{r}
+AIC(modelardl$model)
+```
+
+Nilai Adjusted $R^2$ sebesar $0.7217$ menunjukkan bahwa sekitar $72.17\%$ keragaman peubah $\text{DTMA}$ mampu dijelaskan oleh model ARDL jangka pendek. Sebagian besar parameter lag peubah penjelas dan respon berpengaruh nyata atau signifikan secara statistik terhadap peubah respon dalam jangka pendek.
+
+### Jangka Panjang
+```{r}
+modelardll <- dynardl(
+  formula = Yt ~ Xt,
+  data = train,
+  levels = c("Xt"),
+  ec = FALSE
+)
+```
+```{r}
+summary(modelardll)
+```
+```{r}
+AIC(modelardll$model)
+```
+
+Nilai Adjusted $R^2$ sebesar $0.6701$ menunjukkan bahwa model jangka panjang dapat menjelaskan $67.01\%$ keragaman data. Koefisien peubah penjelas $X_t$ bernilai positif dan signifikan secara statistik ($p\text{-value} < 2.2 \times 10^{-16}$), yang menunjukkan adanya hubungan keseimbangan atau keterkaitan jangka panjang yang kuat antara peubah penjelas dan peubah respon.
+
+## Uji Asumsi
+Tahap ini menguji asumsi-asumsi penting terhadap residual model ARDL yang telah dibentuk guna memastikan kelayakan model ekonometrika yang digunakan.
+### Uji Autokorelasi Residual (Box-Ljung Test)
+```{r}
+res1 <- residuals(modelardl$model)
+Box.test(res1, lag = 20, type = "Ljung-Box")
+```
+
+Hasil Output: Statistik $X\text{-squared} = 19.384$, $\text{df} = 20$, $p\text{-value} = 0.497
+
+Hipotesis: 
+* $H_0$: Tidak ada autokorelasi dalam residual.
+* $H_1$: Terdapat autokorelasi dalam residual.
+
+Karena nilai $p\text{-value} = 0.497 > 0.05$, maka gagal tolak $H_0$. Hal ini menunjukkan bahwa tidak ada bukti signifikan adanya autokorelasi dalam residual model.
+
+### Uji Normalitas (Jarque-Bera Test)
+```{r}
+jarque.bera.test(res1)
+```
+
+Hasil Output: Statistik $X\text{-squared} = 1350.3$, $\text{df} = 2$, $p\text{-value} < 2.2 \times 10^{-16}$
+
+Hipotesis: 
+* $H_0$: Data residual berdistribusi normal.
+* $H_1$: Data residual tidak berdistribusi normal.
+
+Karena nilai $p\text{-value} < 0.05$, maka tolak $H_0$. Hal ini menunjukkan bahwa data residual tidak berdistribusi normal.
+
+### Uji Heteroskedastisitas (Breusch-Pagan Test)
+```{r}
+fitted_val1 <- fitted(modelardl$model)
+bptest(res1 ~ fitted_val1)
+```
+
+Hasil Output: Statistik $\text{BP} = 1.3862$, $\text{df} = 1$, $p\text{-value} = 0.239$
+
+Hipotesis: 
+* $H_0$: Residual memiliki varians yang konstan (homoskedastis).
+* $H_1$: Residual memiliki varians yang tidak konstan (heteroskedastis).
+
+Berdasarkan nilai $p\text{-value} > 0.05$ (atau uji pendukung pada ringkasan), gagal tolak $H_0$, yang mengindikasikan bahwa residual model memiliki varians yang konstan (homoskedastis).
+
+### Multikolinearitas
+```{r}
+vif(modelardl$model)
+```
+
+Hasil Output: Nilai Variance Inflation Factor (VIF) untuk lag peubah $\text{DTMA}$ berkisar antara $1.24$ hingga $1.68$, sedangkan peubah $\text{DPC}$ sebesar $1.07$.
+
+Seluruh nilai VIF berada jauh di bawah batas kritis $10$, yang menunjukkan bahwa tidak terdapat masalah multikolinearitas antarpeubah penjelas di dalam model.
+
+## Forecasting
+Tahap peramalan (forecasting) dilakukan untuk mengevaluasi kinerja model ARDL pada data pelatihan (training) dan pengujian (testing), serta melakukan peramalan ke depan untuk periode tahun 2025.
+### Data Training 
+Melakukan pembedaan (differencing) orde pertama pada data train untuk peubah respon ($\text{DTMA}$) dan penjelas ($\text{DPC}$), kemudian menghitung nilai prediksi $\text{DTMA}$ menggunakan intersep dan koefisien model ARDL yang direkonstruksi kembali ke bentuk level $\text{TMA}$.
+```{r}
+DTMA <- diff(train$Yt, differences = 1)
+DPC  <- diff(train$Xt, differences = 1)
+
+train_baru <- data.frame(DPC)
+colnames(train_baru) <- c("DPC")
+
+coefs <- summary(modelardl)$coefficients
+
+intercept <- coefs["(Intercept)", "Estimate"]
+b1 <- coefs["l.1.DPC", "Estimate"]
+
+train_baru$DTMA_pred <- intercept + b1 * train_baru$DPC
+
+train_baru$TMA_pred <- NA
+train_baru$TMA_pred[1] <- train$Yt[1] + train_baru$DTMA_pred[1]
+
+for(i in 2:nrow(train_baru)) {
+  train_baru$TMA_pred[i] <- train_baru$TMA_pred[i-1] + train_baru$DTMA_pred[i]
+}
+
+TMA_actual <- train$Yt[-1]  
+TMA_pred <- train_baru$TMA_pred
+
+plot(TMA_actual, type = "l", col = "black", main = "Train: Actual vs Predicted TMA")
+lines(TMA_pred, col = "blue")
+legend("topleft", legend = c("Actual", "Predicted"), col = c("black", "blue"), lty = 1)
+
+MAE <- mean(abs(TMA_pred - TMA_actual), na.rm = TRUE)
+RMSE <- sqrt(mean((TMA_pred - TMA_actual)^2, na.rm = TRUE))
+MAPE <- mean(abs((TMA_actual - TMA_pred) / TMA_actual), na.rm = TRUE) * 100
+
+cat("MAE:", MAE, "\n")
+cat("RMSE:", RMSE, "\n")
+cat("MAPE:", MAPE, "%\n")
+```
+
+Visualisasi perbandingan antara nilai aktual dan prediksi $\text{TMA}$ pada data training menunjukkan pola fluktuasi yang dapat diikuti oleh model.
+
+Evaluasi Kinerja:
+* MAE: $32.39134$
+* RMSE: $42.26852$
+* MAPE: $5.24862\%$
+
+Nilai MAPE sebesar $5.24862\%$ berada di bawah $10\%$, yang menunjukkan bahwa kemampuan model ARDL dalam memprediksi data training termasuk dalam kategori sangat baik (high accuracy).
+
+### Data Testing
+Data pengujian (testing) memiliki $153$ observasi dengan rentang tanggal dari Agustus hingga Desember 2024. Melakukan prosedur peramalan out-of-sample menggunakan data testing dengan menerapkan koefisien model yang sama dan merekonstruksi nilai prediksinya.
+```{r}
+str(test)
+summary(test)
+
+TDPC <- diff(test$Xt, differences = 1)
+test_baru <- data.frame(TDPC)
+colnames(test_baru) <- c("DPC")
+
+coefs <- summary(modelardl)$coefficients
+intercept <- coefs["(Intercept)", "Estimate"]
+b1 <- coefs["l.1.DPC", "Estimate"]
+
+test_baru$DTMA_pred <- intercept + b1 * test_baru$DPC
+
+last_TMA_train <- tail(train$Yt, 1)
+
+test_baru$TMA_pred <- NA
+test_baru$TMA_pred[1] <- last_TMA_train + test_baru$DTMA_pred[1]
+
+for(i in 2:nrow(test_baru)) {
+  test_baru$TMA_pred[i] <- test_baru$TMA_pred[i-1] + test_baru$DTMA_pred[i]
+}
+
+TMA_actual <- test$Yt[-1]  
+TMA_pred <- test_baru$TMA_pred
+
+mse <- mean((TMA_actual - TMA_pred)^2, na.rm = TRUE)
+rmse <- sqrt(mse)
+date_seq <- seq.Date(from = as.Date("2024-07-25"), by = "day", length.out = length(TMA_pred))
+
+plot(TMA_actual, type = "l", col = "black", main = "Actual vs Predicted TMA")
+lines(TMA_pred, col = "blue")
+legend("topleft", legend = c("Actual", "Predicted"), col = c("black", "blue"), lty = 1)
+
+plot(date_seq, TMA_actual, type = "l", col = "black", 
+     main = "Actual vs Predicted TMA", xlab = "Tanggal", ylab = "TMA")
+lines(date_seq, TMA_pred, col = "blue")
+legend("topleft", legend = c("Actual", "Predicted"), 
+       col = c("black", "blue"), lty = 1)
+
+MAE <- mean(abs(TMA_pred - TMA_actual))
+RMSE <- sqrt(mean((TMA_pred - TMA_actual)^2))
+MAPE <- mean(abs((TMA_actual - TMA_pred) / TMA_actual)) * 100
+
+cat("MAE:", MAE, "\n")
+cat("RMSE:", RMSE, "\n")
+cat("MAPE:", MAPE, "%\n")
+```
+
+Grafik perbandingan aktual vs prediksi $\text{TMA}$ pada data testing menampilkan tren pergerakan nilai aktual terhadap hasil peramalan berdasar sumbu tanggal.
+
+Evaluasi Kinerja:
+* MAE: $21.66831$
+* RMSE: $29.25289$
+* MAPE: $3.369037\%$
+
+Nilai MAPE pada data testing sebesar $3.369037\%$ menunjukkan konsistensi performa model yang sangat baik dan akurat dalam meramalkan data baru di luar data pelatihan.
+
+### Prediksi 2025
+Memuat data peramalan tahun 2025 dari berkas eksternal, mengambil $120$ data terakhir, melakukan differencing pada peubah penjelas ($\text{PC}$), dan menghitung nilai prediksi $\text{TMA}$.
+```{r}
+data_prediksi_15 <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 3/Data_Jan25_Mar25.xlsx")
+data_prediksi_15 <- tail(data_prediksi_15, 120)
+data_prediksi_15$Date <- as.Date(data_prediksi_15$Date)
+str(data_prediksi_15)
+
+DPC_15 <- diff(data_prediksi_15$PC, differences = 1)
+test_15 <- data.frame(DPC = DPC_15)
+colnames(test_15) <- c("DPC")
+
+coefs <- summary(modelardl)$coefficients
+intercept <- coefs["(Intercept)", "Estimate"]
+b1 <- coefs["l.1.DPC", "Estimate"]
+
+test_15$DTMA_pred <- intercept + b1 * test_15$DPC 
+
+test_15$TMA_pred <- NA
+test_15$TMA_pred[1] <- data_prediksi_15$TMA[1] + test_15$DTMA_pred[1]
+
+for(i in 2:nrow(test_15)) {
+  test_15$TMA_pred[i] <- test_15$TMA_pred[i-1] + test_15$DTMA_pred[i]
+}
+
+tanggal_prediksi <- seq.Date(from = as.Date("2025-01-01"), by = "day", length.out = nrow(test_15))
+hasil_prediksi <- data.frame(
+  date = tanggal_prediksi,
+  TMA_actual = data_prediksi_15$TMA[-1],  
+  TMA_pred = test_15$TMA_pred
+)
+
+nama_file_excel4 <- "hasil_peramalan.xlsx"
+write_xlsx(hasil_prediksi, path = nama_file_excel4)
+
+ggplot(hasil_prediksi, aes(x = date, y = TMA_pred)) +
+  geom_line(color = "blue", linewidth = 1) +
+  labs(
+    title = "Prediksi Tinggi Muka Air (TMA)",
+    x = "Tanggal",
+    y = "TMA Prediksi"
+  ) +
+  theme_minimal()
+
+plot(hasil_prediksi$date, hasil_prediksi$TMA_actual, type = "l", col = "black",
+     ylab = "TMA", xlab = "Tanggal", main = "TMA Aktual vs Prediksi", cex.axis = 1.2)
+lines(hasil_prediksi$date, hasil_prediksi$TMA_pred, col = "blue")
+legend("topleft", legend = c("Aktual", "Prediksi"), col = c("black", "blue"), lty = 1)
+
+MAE <- mean(abs(hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred))
+RMSE <- sqrt(mean((hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred)^2))
+MAPE <- mean(abs((hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred) / hasil_prediksi$TMA_actual)) * 100
+
+cat("MAE:", MAE, "\n")
+cat("RMSE:", RMSE, "\n")
+cat("MAPE:", MAPE, "%\n")
+```
+
+Visualisasi Grafik ggplot: Plot menggunakan ggplot2 menampilkan garis tren berwarna biru untuk "Prediksi Tinggi Muka Air (TMA)" sepanjang bulan Januari hingga April 2025.
+
+Plot Perbandingan Aktual vs Prediksi: Grafik base R memperlihatkan perbandingan langsung antara kurva hitam (TMA Aktual) dan kurva biru (TMA Prediksi) untuk periode tahun 2025.
+
+Evaluasi Kinerja Peramalan 2025:
+* MAE: $16.44957$
+* RMSE: $26.22874$
+* MAPE: $2.423865\%$
+
+Nilai MAPE sebesar $2.423865\%$ berada jauh di bawah ambang batas $10\%$, yang mengindikasikan bahwa model ARDL memiliki tingkat akurasi peramalan yang sangat tinggi dan sangat baik dalam memproyeksikan tinggi muka air untuk periode tahun 2025.
+
+# Kesimpulan 
+Pemodelan ARDL menggunakan metode dynardl menunjukkan adanya hubungan kointegrasi jangka panjang yang signifikan antara tinggi muka air (TMA) dan peubah penjelasnya, di mana model jangka pendek maupun jangka panjang berhasil dibentuk dengan performa keragaman yang baik. Pengujian asumsi terhadap residual model mengonfirmasi terpenuhinya asumsi nir-autokorelasi, homoskedastisitas, dan ketiadaan multikolinearitas, meskipun residual belum berdistribusi normal. Evaluasi kinerja peramalan menggunakan data training, testing, dan proyeksi tahun 2025 secara konsisten menghasilkan nilai Mean Absolute Percentage Error (MAPE) yang berada jauh di bawah ambang batas 10% (masing-masing sekitar 5.25%, 3.37%, dan 2.42%), sehingga model ARDL yang dibangun terbukti sangat akurat dan andal untuk meramalkan tinggi muka air ke depan.
