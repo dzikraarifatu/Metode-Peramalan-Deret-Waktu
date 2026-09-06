@@ -1,5 +1,5 @@
 ---
-title: "Tugas Kuliah 2 MPDW"
+title: "Tugas Kuliah 2 MPDW - Penanganan Autokorelasi"
 author: "Arifatu Dzikra"
 date: "2026-08-27"
 output: 
@@ -23,7 +23,7 @@ Package lmtest digunakan untuk melakukan uji statistik seperti Durbin-Watson. Pa
 # Impor Data
 Chunk ini berfungsi untuk membaca data sekunder berupa Indeks Pembangunan Manusia (IPM) Provinsi Sumatera Barat dari file eksternal berformat CSV, melakukan pembersihan struktur data, dan menampilkan tabel awal untuk memastikan data terbaca dengan benar.
 ```{r}
-filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/2/TUGAS KULIAH 2 MPDW_(Metode Baru) Indeks Pembangunan Manusia (IPM) menurut Provinsi Sumatera Barat.csv"
+filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/TUGAS KULIAH 2 MPDW_(Metode Baru) Indeks Pembangunan Manusia (IPM) menurut Provinsi Sumatera Barat.csv"
 
 # Membaca data
 data_full <- read.csv(filepath, sep=";", dec=",", skip=1, header=TRUE)
