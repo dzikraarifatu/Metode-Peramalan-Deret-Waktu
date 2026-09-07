@@ -19,7 +19,7 @@ output:
 
 # Library
 Tahap ini memuat seluruh pustaka (library) R yang diperlukan untuk pengolahan data deret waktu, eksplorasi statistik, visualisasi, hingga pemodelan ARDL.
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(readxl)
 library(dplyr)
 library(ggplot2)
@@ -43,6 +43,7 @@ library(openxlsx)
 library(dynamac)
 library(e1071)
 library(MLmetrics)
+library(ivreg)
 ```
 Pustaka-pustaka di atas diaktifkan secara simultan untuk mendukung seluruh tahapan analisis dari eksplorasi hingga evaluasi model.
 
@@ -56,7 +57,7 @@ data_sub <- dataset %>%
 str(data_sub)
 ```
 
-Data harian periode 1 Januari 2022 - 31 Maret 2025 dengan fokus pada pemodelan bivariat antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$).
+Data harian periode 1 Januari 2022 - 31 Maret 2025 dengan fokus pada pemodelan bivariat antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$). Sumber Data: Data yang digunakan pada analisis ini diperoleh dari link berikut: https://github.com/fajryanti/ARDL-skripsi/tree/main.
 
 # Eksplorasi Data
 Bagian ini mengeksplorasi karakteristik data melalui ringkasan statistik deskriptif, ukuran penyebaran, kemencengan, kurtosis, visualisasi deret waktu, serta matriks korelasi antara $\text{TMA}$ dan $\text{PC}$.
@@ -369,6 +370,89 @@ ccf_result1 <- ccf(DTMA, DPC, lag.max=9, plot = TRUE)
 
 Berdasarkan plot CCF antara peubah $\text{DTMA}$ dan $\text{DPC}$ dengan lag.max sebesar $9$, diperoleh lag optimum peubah penjelas $q_1 = 1$ yang berada di luar batas signifikansi (garis putus-putus biru), menunjukkan adanya hubungan keterlambatan (lag) yang signifikan antara peubah respon dan peubah penjelas setelah dilakukan pembedaan (differencing).
 
+# Model Distributed Lag (DLM)
+## Pemodelan DLM
+Tahap ini memodelkan hubungan keterlambatan waktu menggunakan *Distributed Lag Model* (DLM). Pada kerangka kerja DLM, peubah respon (perubahan Tinggi Muka Air / $\text{DTMA}$) dipengaruhi oleh peubah penjelas (perubahan Curah Hujan / $\text{DPC}$) pada periode saat ini ($t$) serta periode-periode sebelumnya ($t-q$). Berdasarkan identifikasi fungsi korelasi silang (*Cross-Correlation Function* / CCF) pada tahap sebelumnya, diperoleh lag optimum peubah penjelas yaitu $q = 1$. Pembentukan model menggunakan data hasil pembedaan pertama (*first differencing*) guna menjamin kestasioneran data.
+```{r}
+model_dlm <- dlm(x = as.vector(DPC), y = as.vector(DTMA), q = 1)
+summary(model_dlm$model)
+```
+
+1. **Persamaan Model:** Berdasarkan output di atas, persamaan regresi DLM dengan $q = 1$ yang terbentuk dapat dituliskan sebagai berikut:
+
+$$\widehat{\text{DTMA}}_t = 0.01530 + 0.71077\,\text{DPC}_t + 1.01849\,\text{DPC}_{t-1}$$
+
+2. **Penguji Koefisien Individu (Uji t):**
+   * **Intersep ($0.01530$):** Nilai p-value sebesar $0.985 > 0.05$ menunjukkan bahwa intersep tidak berpengaruh signifikan secara statistik terhadap model.
+   * **Curah Hujan Saat Ini / $x.t$ ($0.71077$):** Nilai p-value sebesar $2.25 \times 10^{-13} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Hal ini mengindikasikan bahwa setiap kenaikan $1$ unit curah hujan pada hari ini secara langsung meningkatkan Tinggi Muka Air sebesar $0.71077$ unit pada hari yang sama.
+   * **Curah Hujan Kemarin / $x.1$ ($1.01849$):** Nilai p-value $< 2 \times 10^{-16} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Koefisien ini menunjukkan bahwa curah hujan $1$ hari sebelumnya memberikan dampak positif terhadap kenaikan Tinggi Muka Air hari ini sebesar $1.01849$ unit. Menariknya, dampak curah hujan hari sebelumnya ($1.01849$) lebih besar dibandingkan dampak curah hujan pada hari yang sama ($0.71077$).
+
+3. **Uji Keberartian Model Secara Simultan (Uji F):** Diperoleh nilai F-statistik sebesar $63.14$ dengan p-value $< 2.2 \times 10^{-16} < 0.05$. Hal ini menunjukkan keputusan Tolak $H_0$, yang berarti peubah curah hujan saat ini ($\text{DPC}_t$) dan curah hujan hari sebelumnya ($\text{DPC}_{t-1}$) secara bersama-sama (simultan) berpengaruh signifikan terhadap fluktuasi perubahan Tinggi Muka Air ($\text{DTMA}_t$).
+
+4. **Koefisien Determinasi ($R^2$):** Nilai Multiple R-squared sebesar $0.1186$ (dan Adjusted R-squared sebesar $0.1168$). Hal ini mengindikasikan bahwa sekitar $11.86\%$ keragaman perubahan Tinggi Muka Air mampu dijelaskan oleh variabel curah hujan saat ini dan $1$ hari sebelumnya melalui model DLM. Adapun $88.14\%$ sisanya dipengaruhi oleh faktor-faktor lain di luar model.
+
+## Evaluasi Model DLM
+Tahap ini mengevaluasi kinerja dan kriteria kebaikan model (Goodness of Fit) DLM. Evaluasi dilakukan dengan menghitung nilai kriteria informasi Akaike Information Criterion (AIC) dan Bayesian Information Criterion (BIC), serta mengekstrak metrik kesalahan peramalan in-sample (seperti MAE dan MSE) pada data latih. Nilai-nilai ini berfungsi sebagai benchmark komparatif untuk dibandingkan dengan model deret waktu lainnya.
+```{r}
+# Menampilkan nilai AIC, BIC, dan Akurasi (GoF)
+cat("AIC DLM:", AIC(model_dlm$model), "\n")
+cat("BIC DLM:", BIC(model_dlm$model), "\n")
+
+# Menghitung Goodness of Fit (MAPE, MAE, dsb) pada data latih
+GoF(model_dlm)
+```
+1. **Kriteria Informasi Model:**
+   * Nilai AIC: $8718.745$
+   * Nilai BIC: $8738.133$
+   * Nilai AIC dan BIC ini menjadi patokan evaluasi. Semakin kecil nilai AIC/BIC, semakin efisien model dalam merangkum informasi data tanpa risiko overfitting.
+
+2. **Tingkat Kesalahan Model (Goodness of Fit):**
+   * Jumlah Observasi ($n$): $941$ data latih.
+   * Mean Absolute Error (MAE): $15.77835$, artinya secara rata-rata deviasi absolut antara nilai dugaan dan nilai aktual Tinggi Muka Air pada model DLM adalah sebesar $15.78$ unit.
+   * Mean Squared Error (MSE): $613.4048$.
+   * Mean Absolute Scaled Error (MASE): $0.5764154$.
+
+# Model Autoregressive Lag (ARL/Koyck)
+## Pemodelan ARL
+Tahap ini memodelkan hubungan dinamik antara Tinggi Muka Air dan Curah Hujan menggunakan *Model Autoregressive Lag* (ARL) atau yang dikenal sebagai *Model Koyck*. Berbeda dengan DLM yang hanya memasukkan *lag* peubah independen, model ARL memasukkan unsur *lag* dari peubah respon itu sendiri ($\text{DTMA}_{t-1}$) sebagai penjelas di samping peubah independen saat ini ($\text{DPC}_t$). Pendekatan Koyck mengasumsikan bahwa pengaruh *lag* peubah bebas meluruh secara eksponensial seiring bertambahnya waktu. Model diestimasi menggunakan metode *Instrumental Variable* (IV) melalui fungsi `koyckDlm()`.
+```{r}
+model_koyck <- koyckDlm(x = as.vector(DPC), y = as.vector(DTMA))
+summary(model_koyck$model)
+```
+1. **Persamaan Model:** Berdasarkan output hasil estimasi regresi variabel instrumental di atas, persamaan model Koyck yang terbentuk adalah:
+
+$$\widehat{\text{DTMA}}_t = 0.01127 - 0.50644\,\text{DTMA}_{t-1} - 2.29141\,\text{DPC}_t$$
+
+2. **Pengujian Koefisien Individu (Uji t):**
+   * **Intersep ($0.01127$):** Nilai p-value sebesar $0.992 > 0.05$ menunjukkan bahwa intersep tidak berpengaruh signifikan secara statistik terhadap model.
+   * **Lag Respon / $Y.1$ ($-0.50644$):** Nilai p-value $< 2 \times 10^{-16} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Koefisien ini menggambarkan parameter struktur autokorelasi Koyck ($\lambda$). Hasil negatif mengindikasikan adanya koreksi nilai peubah respon dari periode sebelumnya terhadap perubahan tinggi muka air hari ini.
+   * **Curah Hujan Saat Ini / $x.t$ ($-2.29141$):** Nilai p-value sebesar $6.55 \times 10^{-13} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Hal ini mengindikasikan bahwa peubah curah hujan saat ini memberikan pengaruh nyata terhadap perubahan tinggi muka air dalam kerangka transformasi Koyck.
+
+3. **Uji Keberartian Model secara Simultan (Wald Test):**
+Uji statistik Wald menghasilkan nilai statistik sebesar $61.65$ dengan p-value $< 2.2 \times 10^{-16} < 0.05$. Hal ini menunjukkan keputusan Tolak $H_0$, yang berarti peubah lag tinggi muka air ($\text{DTMA}_{t-1}$) dan curah hujan saat ini ($\text{DPC}_t$) secara simultan berpengaruh signifikan terhadap peubah respon.
+
+4. **Koefisien Determinasi ($R^2$):**
+Nilai Multiple R-squared bernilai negatif ($-0.5561$). Nilai $R^2$ negatif lazim terjadi pada estimasi model dengan metode Variabel Instrumental (Instrumental Variable) apabila varians residual model melebihi varians total peubah respon. Hal ini mengindikasikan adanya keterbatasan atau ketidaksesuaian asumsi peluruhan eksponensial yang kaku (Koyck transformation) untuk data ini.
+
+## Evaluasi Model ARL
+Tahap ini mengevaluasi kinerja peramalan in-sample (Goodness of Fit) dari Model Autoregressive Lag (Koyck) menggunakan data latih guna dibandingkan dengan hasil model DLM sebelumnya.
+```{r}
+# Menghitung Goodness of Fit (MAPE, MAE, dsb)
+GoF(model_koyck)
+```
+
+1. **Tingkat Kesalahan Model (Goodness of Fit):**
+   * **Jumlah Observasi ($n$):** $941$ data latih.
+   * **Mean Absolute Error (MAE):** $21.38385$, yang menunjukkan bahwa rata-rata deviasi mutlak peramalan model Koyck terhadap data aktual adalah sebesar $21.38$ unit.
+   * **Mean Squared Error (MSE):** $1082.998$.
+   * **Mean Absolute Scaled Error (MASE):** $0.7811958$.
+   * **sMAPE:** $1.538932\%$.
+
+2. **Perbandingan Komparatif (DLM vs ARL/Koyck):**
+   * Dibandingkan dengan Model DLM ($q=1$) pada bagian sebelumnya yang memiliki MAE sebesar $15.78$ dan MSE sebesar $613.40$, Model ARL (Koyck) menghasilkan tingkat kesalahan yang lebih tinggi (MAE $21.38$ dan MSE $1082.00$).
+   * Nilai $R^2$ yang negatif serta peningkatan nilai kesalahan (error) pada model Koyck mengindikasikan bahwa penyederhanaan struktur lag berbasis restriksi eksponensial kaku ala Koyck kurang mampu menangkap dinamika hubungan antara curah hujan dan tinggi muka air secara optimal.
+   * Keterbatasan dari DLM maupun ARL/Koyck ini menjadi rasionalisasi yang kuat untuk melanjutkan pemodelan ke tingkat yang lebih fleksibel, yaitu Autoregressive Distributed Lag (ARDL).
+
 # Dynardl (dynmac)
 ## Uji Kointegrasi
 ```{r}
@@ -657,5 +741,23 @@ Evaluasi Kinerja Peramalan 2025:
 
 Nilai MAPE sebesar $2.423865\%$ berada jauh di bawah ambang batas $10\%$, yang mengindikasikan bahwa model ARDL memiliki tingkat akurasi peramalan yang sangat tinggi dan sangat baik dalam memproyeksikan tinggi muka air untuk periode tahun 2025.
 
-# Kesimpulan 
-Pemodelan ARDL menggunakan metode dynardl menunjukkan adanya hubungan kointegrasi jangka panjang yang signifikan antara tinggi muka air (TMA) dan peubah penjelasnya, di mana model jangka pendek maupun jangka panjang berhasil dibentuk dengan performa keragaman yang baik. Pengujian asumsi terhadap residual model mengonfirmasi terpenuhinya asumsi nir-autokorelasi, homoskedastisitas, dan ketiadaan multikolinearitas, meskipun residual belum berdistribusi normal. Evaluasi kinerja peramalan menggunakan data training, testing, dan proyeksi tahun 2025 secara konsisten menghasilkan nilai Mean Absolute Percentage Error (MAPE) yang berada jauh di bawah ambang batas 10% (masing-masing sekitar 5.25%, 3.37%, dan 2.42%), sehingga model ARDL yang dibangun terbukti sangat akurat dan andal untuk meramalkan tinggi muka air ke depan.
+# Kesimpulan dan Saran
+## Kesimpulan
+Berdasarkan analisis pemodelan deret waktu bivariat antara **Tinggi Muka Air (TMA)** dan **Curah Hujan (PC)** yang telah melalui tahap *differencing* ($\text{DTMA}$ dan $\text{DPC}$) untuk mengatasi ketidakstasioneran data, dapat ditarik beberapa kesimpulan utama sebagai berikut:
+
+1. **Kinerja Model Distributed Lag (DLM):**
+   * Pemodelan DLM dengan lag optimum $q=1$ membuktikan bahwa perubahan tinggi muka air tidak hanya dipengaruhi oleh curah hujan pada hari H ($\text{DPC}_t$), tetapi juga dipengaruhi secara signifikan oleh curah hujan $1$ hari sebelumnya ($\text{DPC}_{t-1}$).
+   * Dampak curah hujan hari sebelumnya ($1.01849$) ditemukan lebih besar dibanding curah hujan hari yang sama ($0.71077$).
+   * Model DLM menghasilkan nilai kriteria kebaikan model dengan $\text{MAE} = 15.78$, $\text{MSE} = 613.40$, $\text{AIC} = 8718.75$, dan $\text{BIC} = 8738.13$.
+
+2. **Kinerja Model Autoregressive Lag (ARL / Koyck):**
+   * Pemodelan ARL (Koyck) memasukkan komponen *lag* peubah respon ($\text{DTMA}_{t-1}$) untuk menangkap efek peluruhan eksponensial.
+   * Meskipun peubah $\text{DTMA}_{t-1}$ dan $\text{DPC}_t$ berpengaruh signifikan, pembatasan struktur *lag* yang kaku ala Koyck serta pengestimasian berbasis *Instrumental Variable* (IV) menghasilkan tingkat kesalahan yang lebih besar ($\text{MAE} = 21.38$ dan $\text{MSE} = 1082.00$) serta koefisien determinasi ($R^2$) yang negatif. Hal ini mengindikasikan bahwa model Koyck kurang cocok untuk menggambarkan dinamika data ini.
+
+3. **Keunggulan dan Kelayakan Model ARDL (Dynardl):**
+   * Pemodelan **Autoregressive Distributed Lag (ARDL)** terbukti menjadi kerangka kerja terbaik (*best-fit model*) karena menggabungkan keunggulan struktur *lag* peubah respon sekaligus peubah penjelas secara fleksibel tanpa restriksi kaku.
+   * Pengujian kointegrasi (*Bounds Test*) mengonfirmasi adanya hubungan keseimbangan jangka panjang (*long-run equilibrium*) antara curah hujan dan tinggi muka air.
+   * Model ARDL berhasil memenuhi pengujian diagnostik residual secara baik serta menghasilkan akurasi peramalan (*forecasting accuracy*) yang sangat presisi dengan nilai **MAPE di bawah 10%** (berada pada kisaran $2.42\% - 5.25\%$).
+
+## Saran
+Secara keseluruhan, model **ARDL** dinobatkan sebagai model terbaik dan paling andal untuk memprediksi fluktuasi tinggi muka air berdasarkan pola curah hujan. Model ini sangat direkomendasikan untuk digunakan sebagai dasar sistem peringatan dini (*early warning system*) maupun pengambil kebijakan dalam mitigasi risiko banjir dan pengelolaan sumber daya air.
