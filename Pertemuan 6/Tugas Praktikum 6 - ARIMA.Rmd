@@ -335,6 +335,17 @@ summary(model5.da)
 lmtest::coeftest(model5.da)
 ```
 
+Berdasarkan hasil pendugaan parameter pada 5 kandidat model tentatif awal hasil identifikasi EACF, diperoleh temuan sebagai berikut:
+
+1. Model-model berorde lebih tinggi (seperti ARIMA(1,1,2), ARIMA(2,1,3), dan ARIMA(3,1,4)) memiliki parameter pada lag tinggi yang **tidak signifikan secara statistik ($p\text{-value} > 0,05$)**.
+2. Nilai AIC dan BIC pada model-model tersebut relatif tinggi akibat penalti kelebihan parameter (*overparameterization*).
+
+Rasionalisasi Penambahan Model ARIMA(1,1,1):
+
+* **Penyederhanaan Orde (Prinsip Parsimoni)**: Tidak signifikannya parameter pada lag-2 ke atas mengindikasikan bahwa orde $p$ dan $q$ perlu dipangkas (*pruning*). Oleh karena itu, diusulkan model campuran ARMA berorde paling sederhana, yaitu $p=1$ dan $q=1$.
+* **Pencegahan Over-Differencing**: Nilai pembedaan dipertahankan pada $d=1$ karena data latih terbukti sudah stasioner pada pembedaan pertama (uji ADF $p\text{-value} = 0,01$). Penggunaan $d=2$ (seperti pada ARIMA(2,2,2)) dihindari agar tidak terjadi *over-differencing* yang dapat merusak struktur data.
+* Berdasarkan pertimbangan tersebut, **ARIMA(1,1,1)** dimasukkan sebagai model kandidat tambahan untuk diuji kestabilan parameter dan kebaikan fit-nya.
+
 ```{r}
 model_tentatif <- data.frame(
   Model = c("ARIMA(0,1,1)", "ARIMA(1,1,2)", "ARIMA(2,1,0)",
@@ -354,9 +365,15 @@ summary(model_tambahan)
 lmtest::coeftest(model_tambahan)
 ```
 
-Berdasarkan hasil pendugaan parameter pada keenam model tentatif, model $\text{ARIMA}(1,1,2)$ menghasilkan nilai AIC terkecil ($863.74$). Namun, parameter $\text{MA}(2)$ pada model tersebut tidak signifikan secara statistik pada taraf nyata $5\%$ ($p\text{-value} = 0.08989 > 0.05$).Di sisi lain, model $\text{ARIMA}(1,1,1)$ memiliki seluruh parameter yang signifikan secara statistik pada taraf nyata $5\%$ ($p\text{-value}$ ar1 $= 1.12 \times 10^{-9}$ dan $p\text{-value}$ ma1 $< 2.2 \times 10^{-16}$). Model $\text{ARIMA}(1,1,1)$ ini juga memiliki nilai BIC terkecil ($880.01$) di antara seluruh kandidat model, serta nilai AIC ($864.05$) yang hampir sama rendahnya dengan $\text{ARIMA}(1,1,2)$.
+Berdasarkan hasil pendugaan parameter pada lima model tentatif awal hasil identifikasi EACF, ditemukan bahwa model-model berorde lebih tinggi—seperti $\text{ARIMA}(2,1,3)$ dan $\text{ARIMA}(3,1,4)$—memiliki parameter pada lag tinggi yang tidak signifikan secara statistik ($p\text{-value} > 0,05$). Hal ini mengindikasikan terjadinya kelebihan parameter (*overparameterization*). Oleh karena itu, dilakukan pemangkasan (*pruning*) ke orde yang lebih sederhana, yaitu $\text{ARIMA}(1,1,1)$, sebagai model kandidat keenam.
 
-Berdasarkan prinsip parsimoni dan kriteria signifikansi parameter, model $\text{ARIMA}(1,1,1)$ dipilih sebagai model terbaik untuk analisis diagnostik sisaan dan peramalan selanjutnya.
+Dari hasil pengujian keenam model tentatif tersebut, model $\text{ARIMA}(1,1,2)$ menghasilkan nilai AIC terkecil ($863,74$). Namun, parameter $\text{MA}(2)$ pada model tersebut tidak signifikan secara statistik pada taraf nyata $5\%$ ($p\text{-value} = 0,08989 > 0,05$), sehingga model ini gugur.
+
+Di sisi lain, model $\text{ARIMA}(1,1,1)$ memiliki seluruh parameter yang signifikan secara statistik pada taraf nyata $5\%$ ($p\text{-value}$ AR1 $= 1,12 \times 10^{-9}$ dan $p\text{-value}$ MA1 $< 2,2 \times 10^{-16}$). Model $\text{ARIMA}(1,1,1)$ ini juga memiliki nilai BIC terkecil ($880,01$) di antara seluruh kandidat model, serta nilai AIC ($864,05$) yang hampir sama rendahnya dengan $\text{ARIMA}(1,1,2)$.
+
+Pemilihan $d=1$ dan orde $p=1, q=1$ (diabaikannya orde lebih tinggi seperti pada $\text{ARIMA}(2,2,2)$) juga bertujuan menghindari *over-differencing*—mengingat data latih sudah terbukti stasioner pada pembedaan pertama—serta mencegah pembengkakan ragam.
+
+Berdasarkan **Prinsip Parsimoni** dan **kriteria signifikansi parameter**, model $\text{ARIMA}(1,1,1)$ secara resmi dipilih sebagai model terbaik untuk analisis diagnostik sisaan dan peramalan selanjutnya.
 
 ## 6.4. Analisis Sisaan
 Model terbaik hasil identifikasi kemudian dicek asumsi sisaannya. Sisaan model ARIMA harus memenuhi asumsi normalitas, kebebasan, dan kehomogenan ragam. Diagnostik model dilakukan secara eksplorasi dan uji formal.
@@ -472,29 +489,33 @@ Berdasarkan kedua model hasil overfitting di atas, parameter tambahan pada model
 Peramalan dilakukan menggunakan fungsi forecast(). Peramalan berikut ini dilakukan untuk 100 periode ke depan (sesuai dengan jumlah amatan pada data uji).
 ```{r}
 # PERAMALAN (FORECASTING)
-model_terbaik <- Arima(train.ts, order = c(1,1,1), method = "ML")
+library(forecast)
+model_terbaik <- Arima(train.ts, order = c(1, 1, 1), method = "ML")
 
-# Melakukan peramalan untuk 100 periode ke depan
-ramalan <- forecast::forecast(model_terbaik, h = length(test.ts))
+# Peramalan untuk 100 periode ke depan (sesuai panjang data uji)
+ramalan_asli <- forecast::forecast(model_terbaik, h = length(test.ts))
 
-# Menyimpan rataan hasil ramalan
-data.ramalan <- ramalan$mean
+# Plot Peramalan Skala Asli Suhu (°C)
+plot(ramalan_asli, 
+     main = "Plot Peramalan Suhu ARIMA(1,1,1) (Skala Asli)",
+     xlab = "Waktu / Observasi", 
+     ylab = "Suhu (°C)")
 
-# Plot hasil peramalan
-plot(ramalan, main = "Plot Peramalan Model ARIMA(1,1,1)", ylab = "Nilai", xlab = "Waktu")
+# Menampilkan tabel hasil peramalan
+as.data.frame(ramalan_asli)
 ```
 
-Berdasarkan plot hasil peramalan di atas, dapat dilihat bahwa hasil ramalan model $\text{ARIMA}(1,1,1)$ untuk 30 periode ke depan cenderung mengalami penyesuaian di awal periode kemudian bergerak stabil/konstan hingga akhir periode. Selanjutnya, dapat dicari nilai akurasi antara hasil ramalan dengan data uji sebagai berikut:
+Berdasarkan plot hasil peramalan di atas, dapat dilihat bahwa hasil ramalan model $\text{ARIMA}(1,1,1)$ untuk 100 periode ke depan cenderung mengalami penyesuaian di awal periode kemudian bergerak stabil/konstan hingga akhir periode. Selanjutnya, dapat dicari nilai akurasi antara hasil ramalan dengan data uji sebagai berikut:
 ```{r}
 # 1. Membuat tabel perbandingan Data Aktual vs Hasil Peramalan (100 Data)
 perbandingan <- data.frame(
   Aktual = as.numeric(test.ts),
-  Forecast = as.numeric(data.ramalan)
+  Forecast = as.numeric(ramalan_asli$mean)
 )
 perbandingan
 
 # 2. Evaluasi Akurasi Peramalan
-accuracy(as.numeric(data.ramalan), as.numeric(test.ts))
+accuracy(as.numeric(ramalan_asli$mean), as.numeric(test.ts))
 ```
 
 # 9. Kesimpulan
