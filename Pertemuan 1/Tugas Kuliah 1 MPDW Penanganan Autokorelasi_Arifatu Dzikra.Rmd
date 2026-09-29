@@ -1,5 +1,5 @@
 ---
-title: "Tugas Kuliah 2 - Penanganan Autokorelasi Hildreth Lu dan Cochrane Orcutt"
+title: "Tugas Kuliah 1 - Penanganan Autokorelasi Hildreth Lu dan Cochrane Orcutt"
 author: "Arifatu Dzikra"
 date: "2026-08-27"
 output:
