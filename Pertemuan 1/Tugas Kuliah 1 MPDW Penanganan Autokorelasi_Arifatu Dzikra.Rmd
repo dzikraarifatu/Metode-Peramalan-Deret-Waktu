@@ -1,15 +1,86 @@
 ---
-title: "Tugas Kuliah 2 MPDW - Penanganan Autokorelasi"
+title: "Tugas Kuliah 2 - Penanganan Autokorelasi Hildreth Lu dan Cochrane Orcutt"
 author: "Arifatu Dzikra"
 date: "2026-08-27"
-output: 
+output:
   html_document:
-    theme: united
-    highlight: kate
     toc: true
-    toc_float: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    theme: flatly
     code_folding: show
+    mathjax: "default"
 ---
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
+
+/* Font umum (tanpa memaksakan elemen span/div agar MathJax tidak rusak) */
+body, p, li, td, th {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Proteksi khusus agar render simbol matematika MathJax berjalan normal */
+.MathJax, .MathJax *, .mjx-chtml, .mjx-chtml *, .MathJax_Display {
+  font-family: initial !important;
+}
+
+h1, h2, h3, h4, .title, .page-header {
+  border-bottom: none !important;
+  box-shadow: none !important;
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Judul Elemen - Warna Biru Utama */
+h1, h2, h3, .title {
+  color: #1565C0 !important;
+}
+
+h1.title, .title {
+  font-weight: 700 !important;
+}
+
+/* Sidebar TOC */
+.tocify {
+  border: 1px solid #BBDEFB !important;
+  border-radius: 8px !important;
+  background-color: #FFFFFF !important;
+  box-shadow: 0 2px 8px rgba(21, 101, 192, 0.12) !important;
+}
+
+.tocify .list-group-item {
+  color: #37474F !important;
+  border: none !important;
+  padding: 8px 14px !important;
+}
+
+/* Hover Menu TOC - Biru Muda */
+.tocify .list-group-item:hover {
+  background-color: #E3F2FD !important;
+  color: #1565C0 !important;
+}
+
+/* Menu TOC Aktif - Biru Pekat */
+.tocify .list-group-item.active,
+.tocify .list-group-item.active:hover,
+.tocify .list-group-item.active:focus {
+  background-color: #1565C0 !important;
+  color: #FFFFFF !important;
+  font-weight: bold !important;
+  border-left: 4px solid #0D47A1 !important;
+}
+
+/* Tombol Code Folding (Hide/Show) */
+.btn-default.btn-xs {
+  border-color: #1565C0 !important;
+  color: #1565C0 !important;
+}
+.btn-default.btn-xs:hover {
+  background-color: #1565C0 !important;
+  color: #FFFFFF !important;
+}
+</style>
 
 Pada bagian awal ini, kita melakukan penyiapan lingkungan kerja R dengan memanggil *package-package* esensial yang diperlukan untuk analisis regresi, pengujian asumsi sisaan, visualisasi data, serta penanganan autokorelasi.
 ```{r setup, include=FALSE}
@@ -18,12 +89,13 @@ library(lmtest)
 library(ggplot2)
 library(orcutt)
 ```
+
 Package lmtest digunakan untuk melakukan uji statistik seperti Durbin-Watson. Package ggplot2 digunakan untuk membuat visualisasi grafik yang interaktif dan rapi. Sedangkan package orcutt digunakan khusus untuk menerapkan metode penanganan autokorelasi Cochrane-Orcutt secara otomatis dan efisien.
 
 # Impor Data
 Chunk ini berfungsi untuk membaca data sekunder berupa Indeks Pembangunan Manusia (IPM) Provinsi Sumatera Barat dari file eksternal berformat CSV, melakukan pembersihan struktur data, dan menampilkan tabel awal untuk memastikan data terbaca dengan benar.
 ```{r}
-filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/TUGAS KULIAH 2 MPDW_(Metode Baru) Indeks Pembangunan Manusia (IPM) menurut Provinsi Sumatera Barat.csv"
+filepath <- "D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 1/TUGAS KULIAH 1 MPDW_(Metode Baru) Indeks Pembangunan Manusia (IPM) menurut Provinsi Sumatera Barat.csv"
 
 # Membaca data
 data_full <- read.csv(filepath, sep=";", dec=",", skip=1, header=TRUE)
@@ -38,6 +110,7 @@ colnames(data_ipm) <- c("Tahun", "IPM")
 head(data_ipm)
 knitr::kable(head(data_ipm), caption = "Tabel 1. Data IPM Sumatera Barat")
 ```
+
 Data berhasil dimuat dan dibatasi pada dua kolom utama, yaitu kolom Tahun sebagai variabel prediktor ($X$) dan kolom IPM sebagai variabel respon ($Y$). Berdasarkan tampilan awal tabel, terlihat bahwa data merupakan deret waktu (time series) tahunan yang mencakup rentang waktu pengamatan tertentu di Provinsi Sumatera Barat.
 
 # Membuat Model dan Uji DW Awal
@@ -50,14 +123,21 @@ summary(model_awal)
 # Melakukan uji Durbin-Watson
 dwtest(model_awal)
 ```
+
 Berdasarkan hasil regresi awal, diperoleh persamaan $\text{IPM} = -981,4216 + 0,5218(\text{Tahun})$ dengan nilai koefisien determinasi ($R^2$) sebesar 0,9866, yang menunjukkan bahwa keragaman nilai IPM sangat tinggi dijelaskan oleh variabel waktu (Tahun). Variabel Tahun juga terbukti berpengaruh signifikan terhadap IPM karena memiliki nilai $p\text{-value}$ ($1,05 \times 10^{-10}$) yang jauh lebih kecil dari taraf nyata $\alpha = 0,05$. Kendati demikian, hasil Uji Durbin-Watson menunjukkan nilai statistik DW sebesar 0,82777 dengan p-value sebesar 0,002368. Karena nilai p-value tersebut berada di bawah 0,05, keputusan statistiknya adalah menolak $H_0$, yang berarti model awal ini terbukti mengalami pelanggaran asumsi berupa adanya masalah autokorelasi positif sehingga wajib diperbaiki menggunakan metode lanjutan seperti Cochrane-Orcutt atau Hildreth-Lu.
 
 # Penanganan Autokorelasi: Metode Cochrane-Orcutt
 Untuk mengatasi masalah autokorelasi yang terdeteksi pada model awal, kita menerapkan metode pertama yaitu Cochrane-Orcutt menggunakan fungsi dari package orcutt. Metode ini bekerja secara iteratif untuk mengestimasi koefisien autokorelasi $\rho$ (rho) hingga konvergen.
 ```{r}
-# model_cochrane <- cochrane.orcutt(model_awal)
-# summary(model_cochrane)
+model_cochrane <- cochrane.orcutt(model_awal)
+tryCatch({
+  summary(model_cochrane)
+}, error = function(e) {
+  cat("=== PEMBERITAHUAN: METODE COCHRANE-ORCUTT TIDAK KONVERGEN ===\n\n")
+  print(model_cochrane)
+})
 ```
+
 Prosedur iterasi pada metode Cochrane-Orcutt tidak dapat digunakan karena mengalami kendala tidak konvergen (did not converge) akibat keterbatasan ukuran sampel data yang tergolong pendek, yaitu hanya 12 tahun pengamatan dari 2010 hingga 2021. Dalam analisis deret waktu, kegagalan iterasi terjadi pada data berukuran kecil karena fluktuasi sisaan kurang stabil untuk mencapai titik keseimbangan optimal. Sebagai gantinya, penanganan autokorelasi sepenuhnya diselesaikan menggunakan Metode Hildreth-Lu yang jauh lebih stabil melalui pendekatan pencarian langsung (grid search), sehingga berhasil mengeliminasi masalah autokorelasi secara efektif.
 
 # Penanganan Autokorelasi: Metode Hildreth-Lu
@@ -99,6 +179,7 @@ cat("Nilai SSE Terkecil               :", sse_terkecil, "\n\n")
 # Menampilkan hasil regresi (bintang)
 summary(model_hildreth)
 ```
+
 Program berhasil mengidentifikasi nilai rho optimum sebesar 0,9 dengan pencapaian nilai SSE terkecil sebesar 0,3189, yang menunjukkan bahwa titik optimal untuk meredam autokorelasi positif telah ditemukan melalui mekanisme grid search. Dari transformasi data menggunakan nilai rho tersebut, diperoleh persamaan regresi data tertransformasi dengan intercept sebesar -40,7580 dan slope (X_bintang) sebesar 0,2383, di mana koefisien ini nantinya akan direkonstruksi kembali ke dalam skala satuan data asli.Meskipun koefisien determinasi ($R^2$) turun menjadi 0,1638 dengan $p\text{-value}$ model sebesar 0,217, penurunan nilai $R^2$ pada data tertransformasi merupakan hal yang sangat wajar dalam metode penanganan autokorelasi. Fokus utama dari transformasi ini bukanlah untuk mengejar angka $R^2$ yang tinggi, melainkan untuk membersihkan sisaan (residuals) dari pelanggaran asumsi agar parameter yang diestimasi menjadi valid, terbebas dari bias, dan akurat secara statistik.
 
 # Mengembalikan Persamaan ke Model Asli (Hildreth-Lu)
@@ -115,6 +196,7 @@ b_asli <- b_bintang
 cat("Persamaan Regresi Awal (MCO)        : Y = ", coef(model_awal)[1], " + ", coef(model_awal)[2], "X\n")
 cat("Persamaan Regresi Akhir (Hildreth-Lu): Y = ", a_asli, " + ", b_asli, "X\n")
 ```
+
 Dilakukan perbandingan langsung antara persamaan regresi awal MCO dengan persamaan regresi akhir setelah dikembalikan ke skala data aslinya menggunakan metode Hildreth-Lu. Model awal menghasilkan persamaan $Y = -981,4216 + 0,5218X$, sedangkan model perbaikan Hildreth-Lu menghasilkan persamaan akhir $Y = -407,5805 + 0,2383X$. Perubahan nilai konstanta dan slope ini menunjukkan adanya penyesuaian matematis setelah memperhitungkan faktor autokorelasi, sehingga parameter yang diestimasi pada model akhir menjadi lebih valid, akurat, dan terbebas dari distorsi bias akibat ketergantungan antarwaktu pengamatan.
 
 # Uji Durbin-Watson Kembali (Evaluasi Hildreth-Lu)
@@ -122,6 +204,7 @@ Kita melakukan pengujian Durbin-Watson sekali lagi khusus untuk mengevaluasi mod
 ```{r}
 dwtest(model_hildreth)
 ```
+
 Hasil pengujian menunjukkan nilai statistik Durbin-Watson sebesar 1,89 dengan p-value yang bernilai lebih besar dari taraf nyata $\alpha = 0,05$. Keputusan statistik adalah Gagal Tolak $H_0$, yang membuktikan secara empiris bahwa model hasil perbaikan Hildreth-Lu sudah sepenuhnya terbebas dari masalah autokorelasi.
 
 # Visualisasi Perbandingan Model
@@ -156,6 +239,7 @@ ggplot(data = data_ipm, aes(x = Tahun, y = IPM)) +
     plot.subtitle = element_text(size = 11, color = "gray40")
   )
 ```
+
 # Kesimpulan
 Berdasarkan keseluruhan rangkaian analisis deret waktu terhadap data Indeks Pembangunan Manusia (IPM) Provinsi Sumatera Barat tahun 2010–2021, model regresi awal (MCO) terbukti mengalami pelanggaran asumsi berupa autokorelasi positif yang signifikan, sehingga perbaikan model mutlak dilakukan menggunakan metode Hildreth-Lu setelah prosedur Cochrane-Orcutt terkendala masalah konvergensi pada ukuran sampel kecil. 
 
