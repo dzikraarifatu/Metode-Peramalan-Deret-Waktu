@@ -1,21 +1,86 @@
 ---
-title: "Tugas Pertemuan 3 - Analisis ARDL Data Curah Hujan"
+title: "Tugas Pertemuan 2 - Analisis ARDL Data Curah Hujan"
 author: "Arifatu Dzikra"
 date: "`r Sys.Date()`"
 output:
   html_document:
-    theme: cosmo
-    highlight: pygments
     toc: true
-    toc_depth: 3
     toc_float:
       collapsed: false
       smooth_scroll: true
-    number_sections: true
+    toc_depth: 3
+    theme: flatly
     code_folding: show
-    code_download: true
-    df_print: paged
+    mathjax: "default"
 ---
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
+
+/* Font umum (tanpa memaksakan elemen span/div agar MathJax tidak rusak) */
+body, p, li, td, th {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Proteksi khusus agar render simbol matematika MathJax berjalan normal */
+.MathJax, .MathJax *, .mjx-chtml, .mjx-chtml *, .MathJax_Display {
+  font-family: initial !important;
+}
+
+h1, h2, h3, h4, .title, .page-header {
+  border-bottom: none !important;
+  box-shadow: none !important;
+  font-family: 'Poppins', sans-serif !important;
+}
+
+/* Judul Elemen - Warna Kuning Keemasan (Amber) */
+h1, h2, h3, .title {
+  color: #D97706 !important;
+}
+
+h1.title, .title {
+  font-weight: 700 !important;
+}
+
+/* Sidebar TOC */
+.tocify {
+  border: 1px solid #FDE68A !important;
+  border-radius: 8px !important;
+  background-color: #FFFFFF !important;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.15) !important;
+}
+
+.tocify .list-group-item {
+  color: #37474F !important;
+  border: none !important;
+  padding: 8px 14px !important;
+}
+
+/* Hover Menu TOC - Kuning Lembut */
+.tocify .list-group-item:hover {
+  background-color: #FEF3C7 !important;
+  color: #D97706 !important;
+}
+
+/* Menu TOC Aktif - Kuning Keemasan Pekat */
+.tocify .list-group-item.active,
+.tocify .list-group-item.active:hover,
+.tocify .list-group-item.active:focus {
+  background-color: #D97706 !important;
+  color: #FFFFFF !important;
+  font-weight: bold !important;
+  border-left: 4px solid #92400E !important;
+}
+
+/* Tombol Code Folding (Hide/Show) */
+.btn-default.btn-xs {
+  border-color: #D97706 !important;
+  color: #D97706 !important;
+}
+.btn-default.btn-xs:hover {
+  background-color: #D97706 !important;
+  color: #FFFFFF !important;
+}
+</style>
 
 # Library
 Tahap ini memuat seluruh pustaka (library) R yang diperlukan untuk pengolahan data deret waktu, eksplorasi statistik, visualisasi, hingga pemodelan ARDL.
@@ -45,12 +110,13 @@ library(e1071)
 library(MLmetrics)
 library(ivreg)
 ```
+
 Pustaka-pustaka di atas diaktifkan secara simultan untuk mendukung seluruh tahapan analisis dari eksplorasi hingga evaluasi model.
 
 # Import Data
 Tahap ini mengimpor dataset harian dari file Excel lokal ke dalam lingkungan R dan membatasi variabel menjadi peubah terikat tunggal yaitu Tinggi Muka Air ($\text{TMA}$) sebagai $Y$ dan peubah bebas tunggal yaitu Curah Hujan ($\text{PC}$) sebagai $X$.
 ```{r}
-dataset <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 3/Data_Harian_2022_2024.xlsx")
+dataset <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/Data_Harian_2022_2024.xlsx")
 data_sub <- dataset %>% 
   dplyr::select(Date, TMA, PC) %>%
   rename(Yt = TMA, Xt = PC)
@@ -61,6 +127,7 @@ Data harian periode 1 Januari 2022 - 31 Maret 2025 dengan fokus pada pemodelan b
 
 # Eksplorasi Data
 Bagian ini mengeksplorasi karakteristik data melalui ringkasan statistik deskriptif, ukuran penyebaran, kemencengan, kurtosis, visualisasi deret waktu, serta matriks korelasi antara $\text{TMA}$ dan $\text{PC}$.
+
 ## Statistika Deskriptif
 ### Statistika Deskriptif Dasar
 Tahap ini melihat ukuran pemusatan dan penyebaran dasar dari peubah $\text{TMA}$ dan $\text{PC}$.
@@ -193,6 +260,7 @@ ggplot(data_long_split, aes(x = Date, y = Nilai, color = DataType)) +
 
 # Kestasioneran Data dan CCF
 Bagian ini menganalisis kestasioneran data melalui plot ACF, PACF, uji formal Augmented Dickey-Fuller (ADF), serta hubungan lag melalui Cross-Correlation Function (CCF).
+
 ## Plot ACF TMA dan PC
 Tahap ini menampilkan plot Autocorrelation Function (ACF) untuk peubah $\text{TMA}$ dan $\text{PC}$ pada data latih.
 ```{r}
@@ -219,6 +287,7 @@ Berdasarkan plot PACF, terlihat adanya pemotongan yang tajam (*cut off*) pada la
 
 ## Uji ADF
 Tahap ini melakukan pengujian formal Augmented Dickey-Fuller (ADF) untuk menguji kestasioneran data secara statistik.
+
 ### TMA
 ```{r}
 adf.test(train$Yt)
@@ -419,6 +488,7 @@ Tahap ini memodelkan hubungan dinamik antara Tinggi Muka Air dan Curah Hujan men
 model_koyck <- koyckDlm(x = as.vector(DPC), y = as.vector(DTMA))
 summary(model_koyck$model)
 ```
+
 1. **Persamaan Model:** Berdasarkan output hasil estimasi regresi variabel instrumental di atas, persamaan model Koyck yang terbentuk adalah:
 
 $$\widehat{\text{DTMA}}_t = 0.01127 - 0.50644\,\text{DTMA}_{t-1} - 2.29141\,\text{DPC}_t$$
@@ -485,8 +555,6 @@ modelardl <- dynardl(
 ```
 ```{r}
 summary(modelardl)
-```
-```{r}
 AIC(modelardl$model)
 ```
 
@@ -500,11 +568,7 @@ modelardll <- dynardl(
   levels = c("Xt"),
   ec = FALSE
 )
-```
-```{r}
 summary(modelardll)
-```
-```{r}
 AIC(modelardll$model)
 ```
 
@@ -512,6 +576,7 @@ Nilai Adjusted $R^2$ sebesar $0.6701$ menunjukkan bahwa model jangka panjang dap
 
 ## Uji Asumsi
 Tahap ini menguji asumsi-asumsi penting terhadap residual model ARDL yang telah dibentuk guna memastikan kelayakan model ekonometrika yang digunakan.
+
 ### Uji Autokorelasi Residual (Box-Ljung Test)
 ```{r}
 res1 <- residuals(modelardl$model)
@@ -564,6 +629,7 @@ Seluruh nilai VIF berada jauh di bawah batas kritis $10$, yang menunjukkan bahwa
 
 ## Forecasting
 Tahap peramalan (forecasting) dilakukan untuk mengevaluasi kinerja model ARDL pada data pelatihan (training) dan pengujian (testing), serta melakukan peramalan ke depan untuk periode tahun 2025.
+
 ### Data Training 
 Melakukan pembedaan (differencing) orde pertama pada data train untuk peubah respon ($\text{DTMA}$) dan penjelas ($\text{DPC}$), kemudian menghitung nilai prediksi $\text{DTMA}$ menggunakan intersep dan koefisien model ARDL yang direkonstruksi kembali ke bentuk level $\text{TMA}$.
 ```{r}
@@ -675,7 +741,7 @@ Nilai MAPE pada data testing sebesar $3.369037\%$ menunjukkan konsistensi perfor
 ### Prediksi 2025
 Memuat data peramalan tahun 2025 dari berkas eksternal, mengambil $120$ data terakhir, melakukan differencing pada peubah penjelas ($\text{PC}$), dan menghitung nilai prediksi $\text{TMA}$.
 ```{r}
-data_prediksi_15 <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 3/Data_Jan25_Mar25.xlsx")
+data_prediksi_15 <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/Data_Jan25_Mar25.xlsx")
 data_prediksi_15 <- tail(data_prediksi_15, 120)
 data_prediksi_15$Date <- as.Date(data_prediksi_15$Date)
 str(data_prediksi_15)
