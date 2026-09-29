@@ -1,5 +1,5 @@
 ---
-title: "Tugas Pertemuan 2 - Analisis ARDL Data Curah Hujan"
+title: "Tugas Kuliah 2 - Analisis ARDL Data Curah Hujan"
 author: "Arifatu Dzikra"
 date: "`r Sys.Date()`"
 output:
@@ -83,35 +83,30 @@ h1.title, .title {
 </style>
 
 # Library
-Tahap ini memuat seluruh pustaka (library) R yang diperlukan untuk pengolahan data deret waktu, eksplorasi statistik, visualisasi, hingga pemodelan ARDL.
+Tahap ini memuat pustaka (library) R yang diperlukan untuk pengolahan data deret waktu, eksplorasi statistik, visualisasi, hingga pemodelan ARDL.
 ```{r, message=FALSE, warning=FALSE}
+# REVISI: library yang tidak dipakai dibuang (nardl, ggcorrplot, corrplot, urca,
+# openxlsx, MLmetrics, ARDL, MASS). e1071 juga dibuang karena menimpa
+# skewness() dan kurtosis() milik moments sehingga hasilnya membingungkan.
 library(readxl)
 library(dplyr)
 library(ggplot2)
 library(moments)
-library(ggcorrplot)
-library(corrplot)
 library(forecast)
-library(urca)
 library(tseries)
 library(dynlm)
 library(dLagM)
 library(lmtest)
 library(car)
-library(ARDL)
 library(tidyr)
-library(MASS)
 library(patchwork)
-library(nardl)
 library(writexl)
-library(openxlsx)
 library(dynamac)
-library(e1071)
-library(MLmetrics)
 library(ivreg)
+library(sandwich)
 ```
 
-Pustaka-pustaka di atas diaktifkan secara simultan untuk mendukung seluruh tahapan analisis dari eksplorasi hingga evaluasi model.
+Pustaka-pustaka di atas diaktifkan untuk mendukung seluruh tahapan analisis dari eksplorasi hingga evaluasi model.
 
 # Import Data
 Tahap ini mengimpor dataset harian dari file Excel lokal ke dalam lingkungan R dan membatasi variabel menjadi peubah terikat tunggal yaitu Tinggi Muka Air ($\text{TMA}$) sebagai $Y$ dan peubah bebas tunggal yaitu Curah Hujan ($\text{PC}$) sebagai $X$.
@@ -123,10 +118,11 @@ data_sub <- dataset %>%
 str(data_sub)
 ```
 
-Data harian periode 1 Januari 2022 - 31 Maret 2025 dengan fokus pada pemodelan bivariat antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$). Sumber Data: Data yang digunakan pada analisis ini diperoleh dari link berikut: https://github.com/fajryanti/ARDL-skripsi/tree/main.
+Data harian periode 1 Januari 2022 - 31 Desember 2024 ($1096$ hari) dengan fokus pada pemodelan bivariat antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$). Data Januari - Maret 2025 dipakai terpisah sebagai data evaluasi tambahan. Sumber Data: Data yang digunakan pada analisis ini diperoleh dari link berikut: https://github.com/fajryanti/ARDL-skripsi/tree/main.
+<!-- REVISI: periode data diperbaiki (sebelumnya tertulis sampai 31 Maret 2025) -->
 
 # Eksplorasi Data
-Bagian ini mengeksplorasi karakteristik data melalui ringkasan statistik deskriptif, ukuran penyebaran, kemencengan, kurtosis, visualisasi deret waktu, serta matriks korelasi antara $\text{TMA}$ dan $\text{PC}$.
+Bagian ini mengeksplorasi karakteristik data melalui ringkasan statistik deskriptif, ukuran penyebaran, kemencengan, kurtosis, visualisasi deret waktu, serta korelasi antara $\text{TMA}$ dan $\text{PC}$.
 
 ## Statistika Deskriptif
 ### Statistika Deskriptif Dasar
@@ -144,9 +140,10 @@ cat("Standard Deviation TMA:", sd_tma, "\n")
 cat("Standard Deviation PC:", sd_pc, "\n")
 ```
 
-* Tinggi Muka Air ($\text{TMA}$) memiliki simpangan baku sebesar $39,3$, menunjukkan sebaran data respon yang cukup bervariasi.
+* Tinggi Muka Air ($\text{TMA}$) memiliki simpangan baku sebesar $`r round(sd_tma, 2)`$, menunjukkan sebaran data respon yang cukup bervariasi.
 
-* Curah Hujan ($\text{PC}$) memiliki simpangan baku sebesar $8,84$, menunjukkan karakteristik fluktuasi harian curah hujan.
+* Curah Hujan ($\text{PC}$) memiliki simpangan baku sebesar $`r round(sd_pc, 2)`$, menunjukkan karakteristik fluktuasi harian curah hujan.
+<!-- REVISI: angka diambil langsung dari hasil (sebelumnya tertulis 39,3 padahal outputnya 39,45) -->
 
 ### Skewness
 Tahap ini menghitung koefisien kemencengan (skewness) untuk mengevaluasi tingkat kesimetrisan distribusi data peubah $\text{TMA}$ dan $\text{PC}$.
@@ -159,20 +156,22 @@ cat("Skewness PC:", skew_pc, "\n")
 
 * Jika skewness $\approx 0$, berarti distribusi simetris.
 
-* Curah Hujan ($\text{PC}$) memiliki nilai skewness yang tinggi dan bernilai positif, menandakan distribusi data sangat miring ke kanan (right-skewed) akibat adanya hari-hari dengan curah hujan ekstrem.
+* $\text{TMA}$ memiliki skewness $`r round(skew_tma, 2)`$, yaitu miring ke kanan secara ringan.
+
+* Curah Hujan ($\text{PC}$) memiliki skewness $`r round(skew_pc, 2)`$, yang tinggi dan positif, menandakan distribusi data sangat miring ke kanan (right-skewed) akibat adanya hari-hari dengan curah hujan ekstrem.
 
 ### Kurtosis
 Tahap ini menghitung nilai kurtosis guna mengetahui tingkat keruncingan distribusi peubah $\text{TMA}$ dan $\text{PC}$.
 ```{r}
-kurt_tma <- kurtosis(data_sub$Yt, na.rm = TRUE)
-kurt_pc <- kurtosis(data_sub$Xt, na.rm = TRUE)
-cat("Kurtosis TMA:", kurt_tma, "\n")
-cat("Kurtosis PC:", kurt_pc, "\n")
+# REVISI: moments::kurtosis() menghasilkan kurtosis biasa (normal = 3),
+# jadi dikurangi 3 untuk mendapat excess kurtosis (normal = 0)
+kurt_tma <- moments::kurtosis(data_sub$Yt, na.rm = TRUE) - 3
+kurt_pc <- moments::kurtosis(data_sub$Xt, na.rm = TRUE) - 3
+cat("Excess Kurtosis TMA:", kurt_tma, "\n")
+cat("Excess Kurtosis PC:", kurt_pc, "\n")
 ```
 
-* Jika kurtosis $\approx 3$, berarti distribusi normal.
-
-* PC atau curah hujan Kota Bogor memiliki kurtosis sebesar $34,47$, nilai kurtosis yang ekstrem menandakan adanya lonjakan tinggi dalam periode tertentu.
+Nilai yang ditampilkan adalah excess kurtosis (acuan distribusi normal = 0). Excess kurtosis $\text{TMA}$ sebesar $`r round(kurt_tma, 3)`$ menunjukkan distribusi $\text{TMA}$ sangat dekat dengan distribusi normal (mesokurtik), sedangkan $\text{PC}$ sebesar $`r round(kurt_pc, 1)`$ menunjukkan ekor yang sangat berat (leptokurtik) akibat kejadian hujan ekstrem.
 
 ## Plot Time Series TMA dan PC
 Tahap ini menyajikan grafik garis deret waktu untuk melihat pola pergerakan harian dari peubah $\text{TMA}$ dan $\text{PC}$ secara visual.
@@ -194,21 +193,24 @@ ggplot(data_long, aes(x = Date, y = Nilai)) +
 
 * Berdasarkan plot time series di atas, peubah Curah Hujan ($\text{PC}$) menunjukkan fluktuasi yang konstan di sekitar nilai rendah dengan beberapa lonjakan ekstrem yang tajam secara berkala.
 
-* Peubah Tinggi Muka Air ($\text{TMA}$) memperlihatkan pola pergerakan naik turun yang berfluktuasi sepanjang waktu tanpa tren linier yang kaku, mengindikasikan adanya dinamika merespon kondisi musim atau curah hujan.
+* Peubah Tinggi Muka Air ($\text{TMA}$) memperlihatkan pola naik turun tanpa tren linier yang kaku, mengindikasikan adanya dinamika merespon kondisi musim atau curah hujan.
 
-## Matriks Korelasi
+* Pada periode sekitar akhir 2023 hingga awal 2024, $\text{TMA}$ tampak datar di nilai terendahnya. Pola ini perlu dicek apakah benar kondisi lapangan atau nilai yang terbatas/terisi otomatis oleh alat ukur, karena dapat memengaruhi uji kestasioneran dan kualitas model.
+<!-- REVISI: ditambah catatan periode TMA yang datar -->
+
+## Korelasi
 Pemeriksaan korelasi linear sederhana dilakukan untuk melihat sejauh mana hubungan awal antara peubah bebas dan peubah terikat.
 ```{r}
 cor_val <- cor(data_sub$Yt, data_sub$Xt, use = "complete.obs")
 cat("Koefisien Korelasi antara TMA dan PC:", cor_val, "\n")
 ```
 
-* Berdasarkan perhitungan di atas, diperoleh nilai koefisien korelasi antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$) sebesar $0,3946$.
+* Berdasarkan perhitungan di atas, diperoleh koefisien korelasi antara Tinggi Muka Air ($\text{TMA}$) dan Curah Hujan ($\text{PC}$) sebesar $`r round(cor_val, 4)`$.
 
-* Nilai korelasi positif menunjukkan adanya hubungan searah yang moderat antara besarnya curah hujan harian dengan kenaikan tinggi muka air.
+* Nilai korelasi positif menunjukkan hubungan searah yang lemah hingga sedang antara curah hujan harian dan tinggi muka air.
 
 # Data Splitting
-Bagian ini membagi keseluruhan dataset menjadi data pelatihan (train) dan data pengujian (test) dengan proporsi tertentu untuk keperluan evaluasi model peramalan.
+Bagian ini membagi keseluruhan dataset menjadi data pelatihan (train) dan data pengujian (test) untuk keperluan evaluasi model peramalan.
 ```{r}
 total_rows <- nrow(data_sub)
 test_size <- 153
@@ -223,7 +225,7 @@ cat("Jumlah data train:", nrow(train), "\n")
 cat("Jumlah data test:", nrow(test), "\n")
 ```
 
-* Berdasarkan pola data, data dibagi menjadi data train sebesar $86\%$ dari total data atau sebanyak $943$ data dan data test sebesar $14\%$ dari total data atau sebanyak $153$ data.
+* Data dibagi menjadi data train sebesar $86\%$ dari total data atau sebanyak $943$ data dan data test sebesar $14\%$ dari total data atau sebanyak $153$ data (1 Agustus - 31 Desember 2024).
 
 **Time Series Data Split Plot**
 ***Plot Time Series Gabungan (TMA dan PC) Train vs Test***
@@ -259,7 +261,7 @@ ggplot(data_long_split, aes(x = Date, y = Nilai, color = DataType)) +
 ```
 
 # Kestasioneran Data dan CCF
-Bagian ini menganalisis kestasioneran data melalui plot ACF, PACF, uji formal Augmented Dickey-Fuller (ADF), serta hubungan lag melalui Cross-Correlation Function (CCF).
+Bagian ini menganalisis kestasioneran data melalui plot ACF, PACF, uji formal Augmented Dickey-Fuller (ADF) dan KPSS, serta hubungan lag melalui Cross-Correlation Function (CCF).
 
 ## Plot ACF TMA dan PC
 Tahap ini menampilkan plot Autocorrelation Function (ACF) untuk peubah $\text{TMA}$ dan $\text{PC}$ pada data latih.
@@ -271,7 +273,8 @@ combined_acf <- acf_TMA / acf_PC
 combined_acf
 ```
 
-Berdasarkan plot ACF untuk $\text{TMA}$ dan $\text{PC}$, terlihat pola peluruhan yang sangat lambat (*slow decay*), yang mengindikasikan bahwa data kedua peubah tidak stasioner dalam rata-rata.
+Plot ACF $\text{TMA}$ meluruh lambat, artinya data sangat persisten (nilai hari ini sangat dipengaruhi nilai hari sebelumnya). ACF $\text{PC}$ meluruh lebih cepat. Pola peluruhan lambat ini belum otomatis berarti data tidak stasioner, sehingga kestasioneran diputuskan lewat uji formal (ADF dan KPSS) di bawah.
+<!-- REVISI: sebelumnya tertulis "indikasi ketidakstasioneran" padahal ADF menyatakan stasioner -->
 
 ## Plot PACF TMA dan PC
 Tahap ini menampilkan plot Partial Autocorrelation Function (PACF) untuk peubah $\text{TMA}$ dan $\text{PC}$.
@@ -283,24 +286,30 @@ combined_pacf <- pacf_TMA / pacf_PC
 combined_pacf
 ```
 
-Berdasarkan plot PACF, terlihat adanya pemotongan yang tajam (*cut off*) pada lag pertama, yang memperkuat indikasi ketidakstasioneran dan karakteristik data deret waktu yang belum stasioner.
+Plot PACF $\text{TMA}$ menunjukkan lag pertama yang sangat dominan disusul beberapa lag awal yang kecil tetapi signifikan. Pola ACF meluruh dan PACF terpotong di lag-lag awal ini adalah karakteristik proses autoregresif (AR) yang stasioner dan persisten, bukan tanda ketidakstasioneran.
+<!-- REVISI: interpretasi PACF diperbaiki -->
 
-## Uji ADF
-Tahap ini melakukan pengujian formal Augmented Dickey-Fuller (ADF) untuk menguji kestasioneran data secara statistik.
+## Uji ADF dan KPSS
+Tahap ini melakukan pengujian formal untuk menguji kestasioneran data. ADF menguji $H_0$: ada akar unit (tidak stasioner), sedangkan KPSS menguji $H_0$: data stasioner. Keduanya dipakai bersama karena ADF kurang kuat pada data yang sangat persisten.
 
 ### TMA
 ```{r}
 adf.test(train$Yt)
+kpss.test(train$Yt, null = "Level")
 ```
-
-TMA stasioner secara uji formal
 
 ### PC
 ```{r}
 adf.test(train$Xt)
+kpss.test(train$Xt, null = "Level")
 ```
 
-PC stasioner secara uji formal.
+* ADF pada $\text{TMA}$ dan $\text{PC}$ menghasilkan $p\text{-value} < 0.01$ (R memberi peringatan bahwa nilai sebenarnya lebih kecil dari yang dicetak), sehingga tolak $H_0$: kedua peubah stasioner pada level $I(0)$.
+
+* KPSS pada $\text{PC}$ tidak menolak $H_0$ ($p > 0.10$), sehingga ADF dan KPSS sepakat bahwa $\text{PC}$ stasioner. Untuk $\text{TMA}$, KPSS menolak $H_0$ ($p = 0.0146 < 0.05$) sementara ADF menolak akar unit, sehingga buktinya **bertentangan**. Hal ini wajar pada deret yang sangat persisten (ACF meluruh lambat): $\text{TMA}$ paling tepat dipandang sebagai deret stasioner dengan persistensi tinggi, dan keterbatasan ini perlu disebutkan.
+
+* Model ARDL utama tetap dibangun **pada level**, bukan pada data hasil differencing. Alasannya: ADF menolak akar unit pada kedua peubah, tidak ada peubah yang $I(2)$, dan kerangka ARDL dengan uji batas (bounds test) tetap valid baik untuk peubah $I(0)$ maupun $I(1)$, sehingga ketidakpastian pada $\text{TMA}$ tidak membatalkan pemodelan pada level.
+<!-- REVISI: keputusan pemodelan disesuaikan dengan hasil ADF -->
 
 ## Plot CCF antara TMA dan PC
 Tahap ini melihat korelasi silang antara peubah $\text{TMA}$ dan $\text{PC}$ pada berbagai lag waktu.
@@ -308,11 +317,11 @@ Tahap ini melihat korelasi silang antara peubah $\text{TMA}$ dan $\text{PC}$ pad
 ccf_result <- ccf(train$Yt, train$Xt, lag.max = 10, plot = TRUE, main = "CCF antara TMA dan PC")
 ```
 
-Berdasarkan plot Cross-Correlation Function (CCF) di atas, terlihat adanya signifikansi korelasi silang antara $\text{TMA}$ dan $\text{PC}$ pada beberapa lag, yang mengindikasikan bahwa peubah penjelas ($\text{PC}$) memiliki hubungan keterlambatan waktu terhadap peubah respon ($\text{TMA}$).
+Pada `ccf(y, x)`, lag positif berarti $X$ mendahului $Y$. Korelasi tertinggi ada di lag $+1$, sehingga curah hujan hari sebelumnya berkaitan paling kuat dengan $\text{TMA}$ hari ini. Perlu diingat bahwa CCF pada data level dipengaruhi autokorelasi masing-masing deret, sehingga hampir semua lag tampak signifikan. Penentuan lag optimum tetap sebaiknya dikonfirmasi dengan kriteria informasi (AIC/BIC).
 
 # First Difference
 ## Differencing
-Tahap ini melakukan pembedaan (*differencing*) tingkat pertama pada data latih untuk mengatasi ketidakstasioneran.
+Karena ADF menunjukkan data sudah stasioner pada level, differencing tidak wajib. Bagian ini tetap dipertahankan untuk **model DLM dan Koyck** sebagai pembanding pada skala perubahan harian, sedangkan ARDL utama memakai data level.
 ```{r}
 DTMA <- diff(train$Yt, differences = 1)
 DPC <- diff(train$Xt, differences = 1)
@@ -325,12 +334,7 @@ head(df)
 ### DTMA
 Tahap ini menampilkan plot ACF untuk peubah $\text{DTMA}$ hasil differencing pertama.
 ```{r}
-acf_DTMA <- ggAcf(DTMA) + labs(title = "ACF DTMA")
-acf_DTMA
-```
-
-Plot ACF DTMA tidak menurun secara perlahan : TMA stasioner
-```{r}
+# REVISI: chunk duplikat (versi tanpa dan dengan ukuran font) digabung jadi satu
 acf_DTMA <- ggAcf(DTMA) +
   labs(title = "ACF DTMA") +
   theme(
@@ -340,16 +344,10 @@ acf_DTMA <- ggAcf(DTMA) +
 acf_DTMA
 ```
 
-Plot ACF DTMA tidak menurun secara perlahan, yang mengindikasikan bahwa data $\text{DTMA}$ telah stasioner dalam rata-rata.
+Plot ACF $\text{DTMA}$ tidak meluruh perlahan sehingga stasioner dalam rata-rata. Namun autokorelasi lag-1 bernilai negatif cukup besar (sekitar $-0.34$), yang merupakan ciri khas *over-differencing* pada data yang sebenarnya sudah stasioner.
 
 ### DPC
 Tahap ini menampilkan plot ACF untuk peubah $\text{DPC}$ hasil differencing pertama.
-```{r}
-acf_DPC <- ggAcf(DPC) + labs(title = "ACF DPC")
-acf_DPC
-```
-
-Plot ACF DPC tidak menurun secara perlahan: PC stasioner
 ```{r}
 acf_DPC <- ggAcf(DPC) +
   labs(title = "ACF DPC") +
@@ -360,14 +358,12 @@ acf_DPC <- ggAcf(DPC) +
 acf_DPC
 ```
 
-Plot ACF DPC tidak menurun secara perlahan, yang mengindikasikan bahwa data $\text{DPC}$ telah stasioner dalam rata-rata.
+Plot ACF $\text{DPC}$ tidak meluruh perlahan sehingga stasioner dalam rata-rata, dengan autokorelasi lag-1 negatif besar (sekitar $-0.39$) yang juga mengindikasikan over-differencing.
 
 ## Plot PACF
 ### DTMA
 Tahap ini menampilkan plot PACF untuk peubah $\text{DTMA}$ hasil differencing pertama.
 ```{r}
-pacf_DTMA <- ggPacf(DTMA) + labs(title = "PACF DTMA")
-pacf_DTMA
 pacf_DTMA <- ggPacf(DTMA) +
   labs(title = "PACF DTMA") +
   theme(
@@ -377,13 +373,12 @@ pacf_DTMA <- ggPacf(DTMA) +
 pacf_DTMA
 ```
 
-Lag $p$ antara $1$ sampai $8$, karena PACF memotong (cut-off) setelah lag-$8$.
+PACF $\text{DTMA}$ bernilai negatif dan signifikan berturut-turut sampai sekitar lag 8, lalu mengecil bertahap (tails off), bukan terpotong tegas. Karena itu lag maksimum tidak ditentukan dari "cut-off" saja, tetapi dari AIC/BIC pada bagian pemilihan orde ARDL.
+<!-- REVISI: sebelumnya tertulis "PACF memotong setelah lag-8" -->
 
 ### DPC
 Tahap ini menampilkan plot PACF untuk peubah $\text{DPC}$ hasil differencing pertama.
 ```{r}
-pacf_DPC <- ggPacf(DPC) + labs(title = "PACF DPC")
-pacf_DPC
 pacf_DPC <- ggPacf(DPC) + 
   labs(title = "PACF DPC") +
   theme(
@@ -393,35 +388,25 @@ pacf_DPC <- ggPacf(DPC) +
 pacf_DPC
 ```
 
-Berdasarkan plot PACF untuk peubah $\text{DPC}$, terlihat pola pemotongan (cut-off) pada beberapa lag awal yang mengindikasikan komponen autoregressive (AR) pada data yang telah dibedakan.
+PACF $\text{DPC}$ juga bernilai negatif dan signifikan pada banyak lag awal, mengecil bertahap, konsisten dengan pola over-differencing.
 
 ## Uji ADF
 ### DTMA
-Tahap ini melakukan uji Augmented Dickey-Fuller (ADF) untuk peubah $\text{DTMA}$ guna menguji kestasioneran secara formal setelah differencing pertama.
 ```{r}
 adf.test(DTMA)
 ```
 
-Nilai p-value sebesar $0.01$ (lebih kecil dari taraf nyata $\alpha = 0.05$), sehingga tolak $H_0$. Hal ini menunjukkan bahwa peubah $\text{TMA}$ (DTMA) sudah stasioner secara uji formal.
+Nilai $p\text{-value} < 0.01$ (lebih kecil dari $\alpha = 0.05$), sehingga tolak $H_0$. $\text{DTMA}$ stasioner secara uji formal.
 
 ### DPC
-Tahap ini melakukan uji Augmented Dickey-Fuller (ADF) untuk peubah $\text{DPC}$ guna menguji kestasioneran secara formal setelah differencing pertama.
 ```{r}
 adf.test(DPC)
 ```
 
-Nilai p-value sebesar $0.01$ (lebih kecil dari taraf nyata $\alpha = 0.05$), sehingga tolak $H_0$. Hal ini menunjukkan bahwa peubah $\text{PC}$ (DPC) sudah stasioner secara uji formal.
+Nilai $p\text{-value} < 0.01$ (lebih kecil dari $\alpha = 0.05$), sehingga tolak $H_0$. $\text{DPC}$ stasioner secara uji formal.
 
 ## Plot CCF (Lag Optimum Peubah Penjelas)
-Tahap ini menampilkan plot *Cross-Correlation Function* (CCF) antara peubah $\text{DTMA}$ dan $\text{DPC}$ untuk menentukan lag optimum dari peubah penjelas.
-**Plot** 
-```{r}
-ccf_result1 <- ggCcf(DTMA, DPC, lag.max=9) + ggtitle("CCF antara DTMA dan DPC")
-ccf_result1
-```
-
-Lag optimum $q_1 = 1$
-
+Tahap ini menampilkan plot *Cross-Correlation Function* (CCF) antara peubah $\text{DTMA}$ dan $\text{DPC}$ untuk menentukan lag optimum dari peubah penjelas pada model DLM.
 ```{r}
 ccf_result1 <- ggCcf(DTMA, DPC, lag.max = 9) +
   ggtitle("CCF antara DTMA dan DPC") +
@@ -434,396 +419,411 @@ ccf_result1
 
 **Nilai Korelasi**
 ```{r}
-ccf_result1 <- ccf(DTMA, DPC, lag.max=9, plot = TRUE)
+# REVISI: plot = FALSE lalu dicetak, supaya nilai korelasinya benar-benar tampil
+ccf_nilai <- ccf(DTMA, DPC, lag.max = 9, plot = FALSE)
+ccf_nilai
 ```
 
-Berdasarkan plot CCF antara peubah $\text{DTMA}$ dan $\text{DPC}$ dengan lag.max sebesar $9$, diperoleh lag optimum peubah penjelas $q_1 = 1$ yang berada di luar batas signifikansi (garis putus-putus biru), menunjukkan adanya hubungan keterlambatan (lag) yang signifikan antara peubah respon dan peubah penjelas setelah dilakukan pembedaan (differencing).
+Korelasi silang terbesar ada di lag $+1$ ($\approx 0.26$), yaitu $\text{DPC}$ hari sebelumnya berkaitan dengan $\text{DTMA}$ hari ini, sehingga dipilih lag optimum $q_1 = 1$. Lag lain (0, 2, dan beberapa lag negatif) juga melewati batas signifikansi, tetapi lag $+1$ paling dominan dan tetap masuk akal secara hidrologi (air hujan butuh waktu mengalir ke titik pengukuran).
 
 # Model Distributed Lag (DLM)
 ## Pemodelan DLM
-Tahap ini memodelkan hubungan keterlambatan waktu menggunakan *Distributed Lag Model* (DLM). Pada kerangka kerja DLM, peubah respon (perubahan Tinggi Muka Air / $\text{DTMA}$) dipengaruhi oleh peubah penjelas (perubahan Curah Hujan / $\text{DPC}$) pada periode saat ini ($t$) serta periode-periode sebelumnya ($t-q$). Berdasarkan identifikasi fungsi korelasi silang (*Cross-Correlation Function* / CCF) pada tahap sebelumnya, diperoleh lag optimum peubah penjelas yaitu $q = 1$. Pembentukan model menggunakan data hasil pembedaan pertama (*first differencing*) guna menjamin kestasioneran data.
+Tahap ini memodelkan hubungan keterlambatan waktu menggunakan *Distributed Lag Model* (DLM). Peubah respon (perubahan Tinggi Muka Air / $\text{DTMA}$) dipengaruhi oleh peubah penjelas (perubahan Curah Hujan / $\text{DPC}$) pada periode saat ini ($t$) serta periode sebelumnya ($t-q$) dengan $q = 1$.
 ```{r}
 model_dlm <- dlm(x = as.vector(DPC), y = as.vector(DTMA), q = 1)
 summary(model_dlm$model)
 ```
 
-1. **Persamaan Model:** Berdasarkan output di atas, persamaan regresi DLM dengan $q = 1$ yang terbentuk dapat dituliskan sebagai berikut:
+1. **Persamaan Model:**
 
 $$\widehat{\text{DTMA}}_t = 0.01530 + 0.71077\,\text{DPC}_t + 1.01849\,\text{DPC}_{t-1}$$
 
-2. **Penguji Koefisien Individu (Uji t):**
-   * **Intersep ($0.01530$):** Nilai p-value sebesar $0.985 > 0.05$ menunjukkan bahwa intersep tidak berpengaruh signifikan secara statistik terhadap model.
-   * **Curah Hujan Saat Ini / $x.t$ ($0.71077$):** Nilai p-value sebesar $2.25 \times 10^{-13} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Hal ini mengindikasikan bahwa setiap kenaikan $1$ unit curah hujan pada hari ini secara langsung meningkatkan Tinggi Muka Air sebesar $0.71077$ unit pada hari yang sama.
-   * **Curah Hujan Kemarin / $x.1$ ($1.01849$):** Nilai p-value $< 2 \times 10^{-16} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Koefisien ini menunjukkan bahwa curah hujan $1$ hari sebelumnya memberikan dampak positif terhadap kenaikan Tinggi Muka Air hari ini sebesar $1.01849$ unit. Menariknya, dampak curah hujan hari sebelumnya ($1.01849$) lebih besar dibandingkan dampak curah hujan pada hari yang sama ($0.71077$).
+2. **Pengujian Koefisien Individu (Uji t):** Semua koefisien peubah penjelas signifikan pada $\alpha = 5\%$, sedangkan intersep tidak signifikan ($p = 0.985$).
+   * **$\text{DPC}_t$ ($0.71077$):** kenaikan perubahan curah hujan harian sebesar $1$ satuan berkaitan dengan kenaikan perubahan $\text{TMA}$ sebesar $0.71077$ satuan pada hari yang sama.
+   * **$\text{DPC}_{t-1}$ ($1.01849$):** kenaikan perubahan curah hujan sebesar $1$ satuan kemarin berkaitan dengan kenaikan perubahan $\text{TMA}$ hari ini sebesar $1.01849$ satuan. Dampak hari sebelumnya lebih besar daripada hari yang sama.
+   * Karena data sudah di-difference, koefisien dibaca sebagai hubungan antar **perubahan harian**, bukan antar level curah hujan dan level $\text{TMA}$.
+<!-- REVISI: cara baca koefisien disesuaikan dengan skala differencing -->
 
-3. **Uji Keberartian Model Secara Simultan (Uji F):** Diperoleh nilai F-statistik sebesar $63.14$ dengan p-value $< 2.2 \times 10^{-16} < 0.05$. Hal ini menunjukkan keputusan Tolak $H_0$, yang berarti peubah curah hujan saat ini ($\text{DPC}_t$) dan curah hujan hari sebelumnya ($\text{DPC}_{t-1}$) secara bersama-sama (simultan) berpengaruh signifikan terhadap fluktuasi perubahan Tinggi Muka Air ($\text{DTMA}_t$).
+3. **Uji Simultan (Uji F):** $F = 63.14$ dengan $p\text{-value} < 2.2 \times 10^{-16}$, sehingga tolak $H_0$: $\text{DPC}_t$ dan $\text{DPC}_{t-1}$ bersama-sama berpengaruh signifikan terhadap $\text{DTMA}_t$.
 
-4. **Koefisien Determinasi ($R^2$):** Nilai Multiple R-squared sebesar $0.1186$ (dan Adjusted R-squared sebesar $0.1168$). Hal ini mengindikasikan bahwa sekitar $11.86\%$ keragaman perubahan Tinggi Muka Air mampu dijelaskan oleh variabel curah hujan saat ini dan $1$ hari sebelumnya melalui model DLM. Adapun $88.14\%$ sisanya dipengaruhi oleh faktor-faktor lain di luar model.
+4. **Koefisien Determinasi ($R^2$):** Multiple R-squared $0.1186$ (Adjusted $0.1168$), artinya sekitar $11.86\%$ keragaman perubahan $\text{TMA}$ dijelaskan oleh curah hujan saat ini dan $1$ hari sebelumnya. Sisanya dipengaruhi faktor lain di luar model.
 
 ## Evaluasi Model DLM
-Tahap ini mengevaluasi kinerja dan kriteria kebaikan model (Goodness of Fit) DLM. Evaluasi dilakukan dengan menghitung nilai kriteria informasi Akaike Information Criterion (AIC) dan Bayesian Information Criterion (BIC), serta mengekstrak metrik kesalahan peramalan in-sample (seperti MAE dan MSE) pada data latih. Nilai-nilai ini berfungsi sebagai benchmark komparatif untuk dibandingkan dengan model deret waktu lainnya.
+Tahap ini mengevaluasi kriteria kebaikan model (Goodness of Fit) DLM melalui AIC, BIC, serta metrik kesalahan in-sample pada data latih.
 ```{r}
-# Menampilkan nilai AIC, BIC, dan Akurasi (GoF)
 cat("AIC DLM:", AIC(model_dlm$model), "\n")
 cat("BIC DLM:", BIC(model_dlm$model), "\n")
 
-# Menghitung Goodness of Fit (MAPE, MAE, dsb) pada data latih
 GoF(model_dlm)
 ```
-1. **Kriteria Informasi Model:**
-   * Nilai AIC: $8718.745$
-   * Nilai BIC: $8738.133$
-   * Nilai AIC dan BIC ini menjadi patokan evaluasi. Semakin kecil nilai AIC/BIC, semakin efisien model dalam merangkum informasi data tanpa risiko overfitting.
 
-2. **Tingkat Kesalahan Model (Goodness of Fit):**
-   * Jumlah Observasi ($n$): $941$ data latih.
-   * Mean Absolute Error (MAE): $15.77835$, artinya secara rata-rata deviasi absolut antara nilai dugaan dan nilai aktual Tinggi Muka Air pada model DLM adalah sebesar $15.78$ unit.
-   * Mean Squared Error (MSE): $613.4048$.
-   * Mean Absolute Scaled Error (MASE): $0.5764154$.
+1. **Kriteria Informasi:** AIC $= 8718.745$ dan BIC $= 8738.133$.
+
+2. **Tingkat Kesalahan (Goodness of Fit):** $n = 941$, MAE $= 15.78$, MSE $= 613.40$, MASE $= 0.576$.
+   * MAPE dan MPE bernilai `Inf`/`NaN` karena $\text{DTMA}$ banyak bernilai nol atau mendekati nol, sehingga **tidak dilaporkan**.
+   * Metrik di atas berada pada skala perubahan harian $\text{TMA}$. Galat prediksi satu hari ke depan pada level $Y_t$ sama besarnya dengan galat pada $\Delta Y_t$, sehingga nilainya dapat dibandingkan langsung dengan model lain pada tabel akhir.
+<!-- REVISI: MAPE Inf tidak lagi dilaporkan -->
 
 # Model Autoregressive Lag (ARL/Koyck)
 ## Pemodelan ARL
-Tahap ini memodelkan hubungan dinamik antara Tinggi Muka Air dan Curah Hujan menggunakan *Model Autoregressive Lag* (ARL) atau yang dikenal sebagai *Model Koyck*. Berbeda dengan DLM yang hanya memasukkan *lag* peubah independen, model ARL memasukkan unsur *lag* dari peubah respon itu sendiri ($\text{DTMA}_{t-1}$) sebagai penjelas di samping peubah independen saat ini ($\text{DPC}_t$). Pendekatan Koyck mengasumsikan bahwa pengaruh *lag* peubah bebas meluruh secara eksponensial seiring bertambahnya waktu. Model diestimasi menggunakan metode *Instrumental Variable* (IV) melalui fungsi `koyckDlm()`.
+Tahap ini memodelkan hubungan dinamik menggunakan *Model Koyck*. Berbeda dengan DLM, model ini memasukkan *lag* peubah respon ($\text{DTMA}_{t-1}$) sebagai penjelas di samping $\text{DPC}_t$, dengan asumsi pengaruh peubah bebas meluruh secara eksponensial. Model diestimasi dengan *Instrumental Variable* (IV) melalui `koyckDlm()`.
 ```{r}
 model_koyck <- koyckDlm(x = as.vector(DPC), y = as.vector(DTMA))
 summary(model_koyck$model)
 ```
 
-1. **Persamaan Model:** Berdasarkan output hasil estimasi regresi variabel instrumental di atas, persamaan model Koyck yang terbentuk adalah:
+1. **Persamaan Model:**
 
 $$\widehat{\text{DTMA}}_t = 0.01127 - 0.50644\,\text{DTMA}_{t-1} - 2.29141\,\text{DPC}_t$$
 
 2. **Pengujian Koefisien Individu (Uji t):**
-   * **Intersep ($0.01127$):** Nilai p-value sebesar $0.992 > 0.05$ menunjukkan bahwa intersep tidak berpengaruh signifikan secara statistik terhadap model.
-   * **Lag Respon / $Y.1$ ($-0.50644$):** Nilai p-value $< 2 \times 10^{-16} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Koefisien ini menggambarkan parameter struktur autokorelasi Koyck ($\lambda$). Hasil negatif mengindikasikan adanya koreksi nilai peubah respon dari periode sebelumnya terhadap perubahan tinggi muka air hari ini.
-   * **Curah Hujan Saat Ini / $x.t$ ($-2.29141$):** Nilai p-value sebesar $6.55 \times 10^{-13} < 0.05$ (sangat signifikan pada $\alpha = 5\%$). Hal ini mengindikasikan bahwa peubah curah hujan saat ini memberikan pengaruh nyata terhadap perubahan tinggi muka air dalam kerangka transformasi Koyck.
+   * **Intersep ($0.01127$):** tidak signifikan ($p = 0.992$).
+   * **Lag respon ($-0.50644$, $p < 2 \times 10^{-16}$):** ini adalah parameter peluruhan Koyck ($\lambda$). Nilainya negatif, padahal asumsi Koyck mensyaratkan $0 < \lambda < 1$.
+   * **$\text{DPC}_t$ ($-2.29141$, $p = 6.55 \times 10^{-13}$):** signifikan, tetapi **bertanda negatif**, berlawanan dengan model DLM dan logika hidrologi (hujan naik seharusnya menaikkan $\text{TMA}$). Tanda yang terbalik ini mengindikasikan estimasi IV tidak stabil (instrumen lemah), sehingga koefisien tersebut tidak dapat ditafsirkan secara substantif.
+<!-- REVISI: tanda negatif pada X.t sebelumnya tidak dibahas -->
 
-3. **Uji Keberartian Model secara Simultan (Wald Test):**
-Uji statistik Wald menghasilkan nilai statistik sebesar $61.65$ dengan p-value $< 2.2 \times 10^{-16} < 0.05$. Hal ini menunjukkan keputusan Tolak $H_0$, yang berarti peubah lag tinggi muka air ($\text{DTMA}_{t-1}$) dan curah hujan saat ini ($\text{DPC}_t$) secara simultan berpengaruh signifikan terhadap peubah respon.
+3. **Uji Simultan (Wald):** $61.65$ dengan $p\text{-value} < 2.2 \times 10^{-16}$, sehingga tolak $H_0$.
 
-4. **Koefisien Determinasi ($R^2$):**
-Nilai Multiple R-squared bernilai negatif ($-0.5561$). Nilai $R^2$ negatif lazim terjadi pada estimasi model dengan metode Variabel Instrumental (Instrumental Variable) apabila varians residual model melebihi varians total peubah respon. Hal ini mengindikasikan adanya keterbatasan atau ketidaksesuaian asumsi peluruhan eksponensial yang kaku (Koyck transformation) untuk data ini.
+4. **Kelayakan Model:** Nilai $\lambda$ negatif melanggar syarat $0 < \lambda < 1$ sehingga asumsi peluruhan eksponensial Koyck tidak sesuai untuk data ini. $R^2$ negatif ($-0.5561$) juga muncul, tetapi hal itu memang lazim pada estimasi IV sehingga bukan alasan utama; alasan utamanya adalah $\lambda$ di luar rentang dan tanda koefisien yang tidak masuk akal.
+<!-- REVISI: R2 negatif bukan pelanggaran asumsi Koyck, alasan utama diperjelas -->
 
 ## Evaluasi Model ARL
-Tahap ini mengevaluasi kinerja peramalan in-sample (Goodness of Fit) dari Model Autoregressive Lag (Koyck) menggunakan data latih guna dibandingkan dengan hasil model DLM sebelumnya.
 ```{r}
-# Menghitung Goodness of Fit (MAPE, MAE, dsb)
 GoF(model_koyck)
 ```
 
-1. **Tingkat Kesalahan Model (Goodness of Fit):**
-   * **Jumlah Observasi ($n$):** $941$ data latih.
-   * **Mean Absolute Error (MAE):** $21.38385$, yang menunjukkan bahwa rata-rata deviasi mutlak peramalan model Koyck terhadap data aktual adalah sebesar $21.38$ unit.
-   * **Mean Squared Error (MSE):** $1082.998$.
-   * **Mean Absolute Scaled Error (MASE):** $0.7811958$.
-   * **sMAPE:** $1.538932\%$.
+* $n = 941$, MAE $= 21.38$, MSE $= 1082.998$, MASE $= 0.781$.
+* Dibandingkan DLM (MAE $15.78$, MSE $613.40$), Koyck menghasilkan kesalahan yang lebih besar. Restriksi peluruhan eksponensial ala Koyck kurang mampu menangkap dinamika curah hujan dan tinggi muka air, sehingga pemodelan dilanjutkan ke ARDL yang lebih fleksibel.
 
-2. **Perbandingan Komparatif (DLM vs ARL/Koyck):**
-   * Dibandingkan dengan Model DLM ($q=1$) pada bagian sebelumnya yang memiliki MAE sebesar $15.78$ dan MSE sebesar $613.40$, Model ARL (Koyck) menghasilkan tingkat kesalahan yang lebih tinggi (MAE $21.38$ dan MSE $1082.00$).
-   * Nilai $R^2$ yang negatif serta peningkatan nilai kesalahan (error) pada model Koyck mengindikasikan bahwa penyederhanaan struktur lag berbasis restriksi eksponensial kaku ala Koyck kurang mampu menangkap dinamika hubungan antara curah hujan dan tinggi muka air secara optimal.
-   * Keterbatasan dari DLM maupun ARL/Koyck ini menjadi rasionalisasi yang kuat untuk melanjutkan pemodelan ke tingkat yang lebih fleksibel, yaitu Autoregressive Distributed Lag (ARDL).
+# ARDL (Level) dan Dynardl (dynamac)
+Pada bagian ini ARDL dibangun pada data **level** karena $\text{TMA}$ dan $\text{PC}$ sudah stasioner. Bentuk umumnya:
 
-# Dynardl (dynmac)
+$$Y_t = c + \sum_{i=1}^{p}\phi_i Y_{t-i} + \sum_{j=0}^{q}\beta_j X_{t-j} + \varepsilon_t$$
+<!-- REVISI: seluruh bagian ARDL dibangun ulang. Sebelumnya dynardl(DTMA ~ DPC, ec = TRUE) dijalankan
+     pada data yang sudah di-difference sehingga responnya menjadi second difference (differencing ganda). -->
+
 ## Uji Kointegrasi
 ```{r}
 modelbound <- ardlBound(data = train, formula = Yt ~ Xt, case = 2, max.p = 1, max.q = 9)
 ```
 
-Hasil Uji Kointegrasi Pesaran, Shin and Smith (2001):
-* Jumlah Pengamatan (Observations): $942$
-* Jumlah Peubah Penjelas (Number of Regressors $k$): $1$
-* Kasus (Case): $2$
-* Nilai F-statistik: $41.63978$
-* Nilai Kritis Taraf Nyata 10%: $I(0) = 3.02$ dan $I(1) = 3.51$
-* Nilai Kritis Taraf Nyata 5%: $I(0) = 3.62$ dan $I(1) = 4.16$
-* Nilai Kritis Taraf Nyata 1%: $I(0) = 4.94$ dan $I(1) = 5.58$
+Hasil Uji Kointegrasi Pesaran, Shin and Smith (2001) dengan $942$ pengamatan, $k = 1$, dan kasus $2$: F-statistik $= 41.64$. Nilai kritis batas atas $I(1)$ adalah $3.51$ (10%), $4.16$ (5%), dan $5.58$ (1%). Karena $41.64$ jauh melampaui batas atas, tolak $H_0$ dan disimpulkan ada hubungan jangka panjang antara $\text{TMA}$ dan $\text{PC}$.
 
-Berdasarkan hasil uji kointegrasi, diperoleh nilai F-statistik sebesar $41.64$. Nilai tersebut jauh lebih besar daripada nilai batas atas (upper bound $I(1)$) pada berbagai taraf nyata, termasuk pada taraf nyata 5% sebesar $4.16$ dan 1% sebesar $5.58$. Hal ini menunjukkan keputusan untuk menolak hipotesis nol ($H_0$), yang mengindikasikan adanya hubungan kointegrasi atau keterkaitan jangka panjang yang signifikan antara peubah respon dan peubah penjelas.
+Catatan penting:
+
+* Karena kedua peubah sudah $I(0)$, uji batas (bounds test) memang hampir pasti menolak $H_0$, sehingga hasil ini tidak terlalu informatif secara konsep. Yang lebih penting adalah kecepatan penyesuaian pada model ECM di bawah.
+* Diagnostik pada output uji ini menunjukkan masalah: Breusch-Pagan menolak homoskedastisitas ($p < 2.2 \times 10^{-16}$), Shapiro-Wilk menolak normalitas residual, dan Ramsey RESET menolak spesifikasi model linear ($p = 1.5 \times 10^{-5}$). Ketiganya dibahas ulang pada uji asumsi.
+
+## Pemilihan Orde ARDL
+Orde $p$ (lag $Y$) dan $q$ (lag $X$) dipilih dengan AIC pada semua kombinasi. Semua kombinasi dihitung pada sampel yang sama (baris awal yang kosong akibat lag dibuang) agar AIC dapat dibandingkan.
+```{r}
+# fungsi untuk membuat kolom lag Y dan X
+buat_lag <- function(dat, p, q) {
+  out <- dat
+  for (i in 1:p) out[[paste0("Y_lag", i)]] <- dplyr::lag(dat$Yt, i)
+  if (q > 0) {
+    for (j in 1:q) out[[paste0("X_lag", j)]] <- dplyr::lag(dat$Xt, j)
+  }
+  out
+}
+
+# fungsi untuk membuat formula ARDL(p, q)
+buat_formula <- function(p, q) {
+  rhs <- c(paste0("Y_lag", 1:p), "Xt")
+  if (q > 0) rhs <- c(rhs, paste0("X_lag", 1:q))
+  as.formula(paste("Yt ~", paste(rhs, collapse = " + ")))
+}
+
+p_max <- 10
+q_max <- 3
+
+train_lag_max <- buat_lag(train, p_max, q_max)[-(1:p_max), ]
+
+kandidat <- expand.grid(p = 1:p_max, q = 1:q_max)
+kandidat$AIC <- NA
+kandidat$BIC <- NA
+
+for (i in 1:nrow(kandidat)) {
+  m <- lm(buat_formula(kandidat$p[i], kandidat$q[i]), data = train_lag_max)
+  kandidat$AIC[i] <- AIC(m)
+  kandidat$BIC[i] <- BIC(m)
+}
+
+head(kandidat[order(kandidat$AIC), ], 5)
+
+p_opt <- kandidat$p[which.min(kandidat$AIC)]
+q_opt <- kandidat$q[which.min(kandidat$AIC)]
+cat("Orde terpilih (AIC): p =", p_opt, ", q =", q_opt, "\n")
+```
+
+Berdasarkan AIC terkecil, dipilih ARDL($`r p_opt`$, $`r q_opt`$). Tiga model teratas berselisih AIC kurang dari 2 (8365.7; 8367.2; 8367.3), sehingga ARDL(9, 2) tidak jauh lebih baik daripada ARDL(8, 2). Pada model terpilih, koefisien $Y_{t-5}$ sampai $Y_{t-8}$ juga tidak signifikan. Sebagai pembanding, berikut tiga model teratas menurut BIC yang lebih menghukum banyaknya parameter:
+```{r}
+kandidat[order(kandidat$BIC), ][1:3, ]
+```
+BIC memilih ARDL(4, 2) (BIC $8426.98$, AIC $8383.44$), yaitu model yang jauh lebih hemat parameter daripada ARDL(9, 2) (BIC $8433.47$). Selisih BIC-nya kecil, tetapi AIC-nya lebih besar sekitar $17.7$, sehingga kedua model layak. ARDL(9, 2) dipertahankan sebagai model utama karena AIC-nya terkecil, dan ARDL(4, 2) dapat dijadikan analisis sensitivitas: ubah `p_opt <- 4` lalu knit ulang untuk melihat apakah kesimpulan berubah.
 
 ## Model
-### Jangka Pendek
+### Jangka Pendek (ECM dengan dynardl)
+Model koreksi galat (Error Correction Model, ECM) ekuivalen dengan ARDL($`r p_opt`$, $`r q_opt`$) pada level. Data yang dimasukkan adalah data **level** ($\text{Yt}$ dan $\text{Xt}$), dan `dynardl` sendiri yang membentuk selisihnya.
 ```{r}
+train_df <- as.data.frame(train[, c("Yt", "Xt")])
+
+lagdiffs_list <- list()
+if (p_opt > 1) lagdiffs_list[["Yt"]] <- 1:(p_opt - 1)
+if (q_opt > 1) lagdiffs_list[["Xt"]] <- 1:(q_opt - 1)
+if (length(lagdiffs_list) == 0) lagdiffs_list <- NULL
+
 modelardl <- dynardl(
-  DTMA ~ DPC,
-  data = df,
-  lags = list(
-    "DTMA" = 1:9,
-    "DPC" = 1
-  ),
-  ec = TRUE
+  Yt ~ Xt,
+  data = train_df,
+  lags = list("Yt" = 1, "Xt" = 1),
+  diffs = c("Xt"),
+  lagdiffs = lagdiffs_list,
+  ec = TRUE,
+  simulate = FALSE
 )
-```
-```{r}
-summary(modelardl)
-AIC(modelardl$model)
+summary(modelardl$model)
 ```
 
-Nilai Adjusted $R^2$ sebesar $0.7217$ menunjukkan bahwa sekitar $72.17\%$ keragaman peubah $\text{DTMA}$ mampu dijelaskan oleh model ARDL jangka pendek. Sebagian besar parameter lag peubah penjelas dan respon berpengaruh nyata atau signifikan secara statistik terhadap peubah respon dalam jangka pendek.
+Cara membaca hasil:
+
+* Koefisien `l.1.Yt` adalah **kecepatan penyesuaian** (speed of adjustment) sebesar $-0.154$. Nilainya negatif dan berada di antara $-1$ dan $0$, sehingga sistem stabil dan kembali ke keseimbangan. Sekitar $15\%$ ketidakseimbangan terkoreksi setiap hari (waktu paruh sekitar $4$ hari), dan nilai ini konsisten dengan ECM dari `ardlBound` ($-0.156$).
+* Koefisien `d.1.Xt` sebesar $0.752$ adalah dampak jangka pendek: kenaikan curah hujan $1$ satuan pada hari yang sama langsung menaikkan $\text{TMA}$ sekitar $0.75$ satuan. Efek totalnya berkembang bertahap menuju pengganda jangka panjang di bawah.
+* $R^2$ pada model ECM dihitung untuk respon $\Delta Y_t$, jadi tidak boleh dibandingkan langsung dengan $R^2$ model level.
+<!-- REVISI: sebelumnya Adj R2 = 0.72 dibandingkan dengan model lain, padahal responnya second difference -->
 
 ### Jangka Panjang
+Pengganda jangka panjang dihitung dari koefisien ARDL level (bukan hanya koefisien $X_t$):
+
+$$\text{LRM} = \frac{\sum_j \beta_j}{1-\sum_i \phi_i}$$
+
 ```{r}
-modelardll <- dynardl(
-  formula = Yt ~ Xt,
-  data = train,
-  levels = c("Xt"),
-  ec = FALSE
-)
-summary(modelardll)
-AIC(modelardll$model)
+# model ARDL level (dipakai juga untuk diagnostik dan peramalan)
+n_buang <- max(p_opt, q_opt)
+train_lag <- buat_lag(train, p_opt, q_opt)[-(1:n_buang), ]
+model_ardl <- lm(buat_formula(p_opt, q_opt), data = train_lag)
+summary(model_ardl)
+
+koef <- coef(model_ardl)
+phi_total <- sum(koef[grep("^Y_lag", names(koef))])
+beta_total <- sum(koef[c("Xt", grep("^X_lag", names(koef), value = TRUE))])
+
+lrm <- beta_total / (1 - phi_total)
+kec_penyesuaian <- -(1 - phi_total)
+
+cat("Jumlah koefisien lag Y :", phi_total, "\n")
+cat("Jumlah koefisien X     :", beta_total, "\n")
+cat("Pengganda jangka panjang (LRM):", lrm, "\n")
+cat("Kecepatan penyesuaian (EC)    :", kec_penyesuaian, "\n")
+cat("AIC ARDL level:", AIC(model_ardl), "\n")
 ```
 
-Nilai Adjusted $R^2$ sebesar $0.6701$ menunjukkan bahwa model jangka panjang dapat menjelaskan $67.01\%$ keragaman data. Koefisien peubah penjelas $X_t$ bernilai positif dan signifikan secara statistik ($p\text{-value} < 2.2 \times 10^{-16}$), yang menunjukkan adanya hubungan keseimbangan atau keterkaitan jangka panjang yang kuat antara peubah penjelas dan peubah respon.
+* Pengganda jangka panjang sebesar $`r round(lrm, 3)`$: kenaikan tetap curah hujan sebesar $1$ satuan berkaitan dengan kenaikan tinggi muka air keseimbangan sebesar sekitar $`r round(lrm, 3)`$ satuan.
+* Kecepatan penyesuaian model level ($`r round(kec_penyesuaian, 3)`$) sama dengan koefisien `l.1.Yt` pada ECM ($`r round(coef(modelardl$model)["l.1.Yt"], 3)`$), sehingga kedua bentuk konsisten (ECM dan ARDL level adalah penulisan ulang dari model yang sama).
+* Pengganda jangka panjang adalah rasio, dan karena $\sum_i \phi_i = `r round(phi_total, 3)`$ mendekati $1$, nilainya sensitif terhadap perubahan kecil pada koefisien. Angka ini belum disertai selang kepercayaan, sehingga sebaiknya dibaca sebagai perkiraan kasar.
+* Adjusted $R^2$ model level sebesar $`r round(summary(model_ardl)$adj.r.squared, 3)`$ tinggi terutama karena $\text{TMA}$ sangat persisten (ada lag $Y$ di ruas kanan), bukan semata karena curah hujan.
+<!-- REVISI: koefisien Xt (short-run) sebelumnya dibaca sebagai efek jangka panjang -->
 
 ## Uji Asumsi
-Tahap ini menguji asumsi-asumsi penting terhadap residual model ARDL yang telah dibentuk guna memastikan kelayakan model ekonometrika yang digunakan.
-
-### Uji Autokorelasi Residual (Box-Ljung Test)
+Uji asumsi dilakukan pada residual model ARDL level.
 ```{r}
-res1 <- residuals(modelardl$model)
-Box.test(res1, lag = 20, type = "Ljung-Box")
+res_ardl <- residuals(model_ardl)
 ```
 
-Hasil Output: Statistik $X\text{-squared} = 19.384$, $\text{df} = 20$, $p\text{-value} = 0.497
-
-Hipotesis: 
-* $H_0$: Tidak ada autokorelasi dalam residual.
-* $H_1$: Terdapat autokorelasi dalam residual.
-
-Karena nilai $p\text{-value} = 0.497 > 0.05$, maka gagal tolak $H_0$. Hal ini menunjukkan bahwa tidak ada bukti signifikan adanya autokorelasi dalam residual model.
-
-### Uji Normalitas (Jarque-Bera Test)
+### Uji Autokorelasi Residual
+Karena ada lag peubah respon di ruas kanan, uji Breusch-Godfrey lebih tepat dipakai daripada uji Durbin-Watson. Ljung-Box tetap ditampilkan sebagai pelengkap.
 ```{r}
-jarque.bera.test(res1)
+bgtest(model_ardl, order = 10)
+Box.test(res_ardl, lag = 20, type = "Ljung-Box", fitdf = p_opt)
 ```
 
-Hasil Output: Statistik $X\text{-squared} = 1350.3$, $\text{df} = 2$, $p\text{-value} < 2.2 \times 10^{-16}$
+Hipotesis: $H_0$ tidak ada autokorelasi residual, $H_1$ ada autokorelasi. Uji Breusch-Godfrey menghasilkan $p = 0.990$ dan Ljung-Box $p = 0.616$, keduanya lebih besar dari $0.05$, sehingga gagal tolak $H_0$: tidak ada bukti autokorelasi residual, dan jumlah lag pada model sudah memadai.
 
-Hipotesis: 
-* $H_0$: Data residual berdistribusi normal.
-* $H_1$: Data residual tidak berdistribusi normal.
-
-Karena nilai $p\text{-value} < 0.05$, maka tolak $H_0$. Hal ini menunjukkan bahwa data residual tidak berdistribusi normal.
-
-### Uji Heteroskedastisitas (Breusch-Pagan Test)
+### Uji Normalitas (Jarque-Bera)
 ```{r}
-fitted_val1 <- fitted(modelardl$model)
-bptest(res1 ~ fitted_val1)
+jarque.bera.test(res_ardl)
 ```
 
-Hasil Output: Statistik $\text{BP} = 1.3862$, $\text{df} = 1$, $p\text{-value} = 0.239$
+$H_0$: residual berdistribusi normal. Statistik Jarque-Bera $= 1706.8$ dengan $p < 2.2 \times 10^{-16}$, sehingga tolak $H_0$: residual tidak normal (ekor berat akibat hari hujan ekstrem). Uji t dan selang kepercayaan hanya berlaku secara aproksimasi.
 
-Hipotesis: 
-* $H_0$: Residual memiliki varians yang konstan (homoskedastis).
-* $H_1$: Residual memiliki varians yang tidak konstan (heteroskedastis).
+### Uji Heteroskedastisitas (Breusch-Pagan)
+```{r}
+# REVISI: bptest langsung pada model, bukan pada regresi res ~ fitted
+bptest(model_ardl)
+```
 
-Berdasarkan nilai $p\text{-value} > 0.05$ (atau uji pendukung pada ringkasan), gagal tolak $H_0$, yang mengindikasikan bahwa residual model memiliki varians yang konstan (homoskedastis).
+$H_0$: ragam residual konstan. Hasil $BP = 200.54$ dengan $p < 2.2 \times 10^{-16}$, sehingga tolak $H_0$: ragam residual tidak konstan (heteroskedastis), sesuai dengan temuan pada `ardlBound`. Karena itu inferensi koefisien memakai galat baku yang tahan heteroskedastisitas (HC3):
+```{r}
+coeftest(model_ardl, vcov. = vcovHC(model_ardl, type = "HC3"))
+```
+
+Dengan galat baku HC3, koefisien $X_t$ ($p = 0.002$) dan $X_{t-2}$ ($p = 0.027$) tetap signifikan, tetapi $X_{t-1}$ ($p = 0.100$) dan $Y_{t-3}$ ($p = 0.105$) tidak lagi signifikan pada $5\%$. Jadi klaim bahwa curah hujan hari sebelumnya berpengaruh signifikan menjadi lebih lemah setelah heteroskedastisitas diperhitungkan, walaupun jumlah koefisien curah hujan ($1.295$) tetap positif.
+
+### Uji Spesifikasi (RESET)
+```{r}
+resettest(model_ardl, power = 2:3, type = "fitted")
+```
+
+$H_0$: bentuk fungsional linear sudah memadai. Hasil $RESET = 25.46$ dengan $p = 1.7 \times 10^{-11}$, sehingga tolak $H_0$: spesifikasi linear belum memadai. Hubungan curah hujan dan $\text{TMA}$ kemungkinan tidak linear (mis. efek hujan ekstrem berbeda), sehingga transformasi seperti $\log(1+X_t)$ layak dicoba pada pengembangan berikutnya.
 
 ### Multikolinearitas
 ```{r}
-vif(modelardl$model)
+vif(model_ardl)
 ```
 
-Hasil Output: Nilai Variance Inflation Factor (VIF) untuk lag peubah $\text{DTMA}$ berkisar antara $1.24$ hingga $1.68$, sedangkan peubah $\text{DPC}$ sebesar $1.07$.
-
-Seluruh nilai VIF berada jauh di bawah batas kritis $10$, yang menunjukkan bahwa tidak terdapat masalah multikolinearitas antarpeubah penjelas di dalam model.
+Nilai VIF berkisar antara $1.30$ sampai $4.05$, jauh di bawah batas kritis $10$ (bahkan di bawah $5$), sehingga tidak ada masalah multikolinearitas serius antar lag.
 
 ## Forecasting
-Tahap peramalan (forecasting) dilakukan untuk mengevaluasi kinerja model ARDL pada data pelatihan (training) dan pengujian (testing), serta melakukan peramalan ke depan untuk periode tahun 2025.
+Peramalan yang dipakai adalah **peramalan satu hari ke depan** (one-step-ahead): $\hat{Y}_t$ dihitung dari $Y_{t-1},\dots,Y_{t-p}$ **aktual** dan $X_t, X_{t-1},\dots$ aktual. Model pembanding sederhana (naif) $\hat{Y}_t = Y_{t-1}$ ditambahkan agar akurasi dapat dinilai secara wajar, karena $\text{TMA}$ sangat persisten sehingga MAPE kecil saja tidak cukup membuktikan model bagus.
+<!-- REVISI: prosedur peramalan dibangun ulang. Sebelumnya prediksi test/2025 hanya memakai intersep dan
+     koefisien l.1.DPC dengan mengabaikan lag DTMA, lalu diakumulasi (bukan prediksi dari model yang diestimasi) -->
 
-### Data Training 
-Melakukan pembedaan (differencing) orde pertama pada data train untuk peubah respon ($\text{DTMA}$) dan penjelas ($\text{DPC}$), kemudian menghitung nilai prediksi $\text{DTMA}$ menggunakan intersep dan koefisien model ARDL yang direkonstruksi kembali ke bentuk level $\text{TMA}$.
 ```{r}
-DTMA <- diff(train$Yt, differences = 1)
-DPC  <- diff(train$Xt, differences = 1)
-
-train_baru <- data.frame(DPC)
-colnames(train_baru) <- c("DPC")
-
-coefs <- summary(modelardl)$coefficients
-
-intercept <- coefs["(Intercept)", "Estimate"]
-b1 <- coefs["l.1.DPC", "Estimate"]
-
-train_baru$DTMA_pred <- intercept + b1 * train_baru$DPC
-
-train_baru$TMA_pred <- NA
-train_baru$TMA_pred[1] <- train$Yt[1] + train_baru$DTMA_pred[1]
-
-for(i in 2:nrow(train_baru)) {
-  train_baru$TMA_pred[i] <- train_baru$TMA_pred[i-1] + train_baru$DTMA_pred[i]
+# fungsi ukuran akurasi
+ukur_akurasi <- function(aktual, prediksi) {
+  data.frame(
+    MAE  = mean(abs(aktual - prediksi)),
+    RMSE = sqrt(mean((aktual - prediksi)^2)),
+    MAPE = mean(abs((aktual - prediksi) / aktual)) * 100
+  )
 }
-
-TMA_actual <- train$Yt[-1]  
-TMA_pred <- train_baru$TMA_pred
-
-plot(TMA_actual, type = "l", col = "black", main = "Train: Actual vs Predicted TMA")
-lines(TMA_pred, col = "blue")
-legend("topleft", legend = c("Actual", "Predicted"), col = c("black", "blue"), lty = 1)
-
-MAE <- mean(abs(TMA_pred - TMA_actual), na.rm = TRUE)
-RMSE <- sqrt(mean((TMA_pred - TMA_actual)^2, na.rm = TRUE))
-MAPE <- mean(abs((TMA_actual - TMA_pred) / TMA_actual), na.rm = TRUE) * 100
-
-cat("MAE:", MAE, "\n")
-cat("RMSE:", RMSE, "\n")
-cat("MAPE:", MAPE, "%\n")
 ```
 
-Visualisasi perbandingan antara nilai aktual dan prediksi $\text{TMA}$ pada data training menunjukkan pola fluktuasi yang dapat diikuti oleh model.
+### Data Training
+```{r}
+pred_train <- fitted(model_ardl)
+aktual_train <- train_lag$Yt
+naif_train <- train_lag$Y_lag1
 
-Evaluasi Kinerja:
-* MAE: $32.39134$
-* RMSE: $42.26852$
-* MAPE: $5.24862\%$
+plot(train_lag$Date, aktual_train, type = "l", col = "black",
+     main = "Train: Actual vs Predicted TMA", xlab = "Tanggal", ylab = "TMA")
+lines(train_lag$Date, pred_train, col = "blue")
+legend("topleft", legend = c("Actual", "Predicted"), col = c("black", "blue"), lty = 1)
 
-Nilai MAPE sebesar $5.24862\%$ berada di bawah $10\%$, yang menunjukkan bahwa kemampuan model ARDL dalam memprediksi data training termasuk dalam kategori sangat baik (high accuracy).
+tabel_train <- rbind(
+  ARDL = ukur_akurasi(aktual_train, pred_train),
+  Naif = ukur_akurasi(aktual_train, naif_train)
+)
+round(tabel_train, 3)
+```
+<!-- REVISI: angka di narasi lama (MAE 32.39, RMSE 42.27, MAPE 5.25%) tidak sama dengan output (23.73, 34.91, 3.70%). Sekarang diambil dari hasil. -->
+
+Pada data training, ARDL memiliki MAPE $`r round(tabel_train["ARDL", "MAPE"], 2)`\%$ dan RMSE $`r round(tabel_train["ARDL", "RMSE"], 2)`$, sedangkan model naif RMSE-nya $`r round(tabel_train["Naif", "RMSE"], 2)`$. RMSE ARDL `r ifelse(tabel_train["ARDL", "RMSE"] < tabel_train["Naif", "RMSE"], "lebih kecil", "tidak lebih kecil")` dibandingkan model naif. RMSE training ($`r round(tabel_train["ARDL", "RMSE"], 2)`$) hampir sama dengan simpangan baku residual model ($`r round(summary(model_ardl)$sigma, 2)`$), yang menandakan prediksi sudah dihitung konsisten dengan model yang diestimasi. Pada grafik, prediksi tampak melonjak tajam mendekati $780$ di sekitar hari hujan ekstrem ($145$ mm), yang menunjukkan model sensitif terhadap pencilan curah hujan.
 
 ### Data Testing
-Data pengujian (testing) memiliki $153$ observasi dengan rentang tanggal dari Agustus hingga Desember 2024. Melakukan prosedur peramalan out-of-sample menggunakan data testing dengan menerapkan koefisien model yang sama dan merekonstruksi nilai prediksinya.
+Data pengujian memiliki $153$ observasi (1 Agustus - 31 Desember 2024). Lag untuk beberapa hari pertama diambil dari data training yang sebenarnya teramati.
 ```{r}
-str(test)
-summary(test)
+# lag dibuat dari seluruh data agar hari-hari awal data test memakai nilai aktual sebelumnya
+full_lag <- buat_lag(data_sub, p_opt, q_opt)
+test_lag <- full_lag[test_index, ]
 
-TDPC <- diff(test$Xt, differences = 1)
-test_baru <- data.frame(TDPC)
-colnames(test_baru) <- c("DPC")
+aktual_test <- test_lag$Yt
+pred_ardl_test <- predict(model_ardl, newdata = test_lag)
+naif_test <- test_lag$Y_lag1
 
-coefs <- summary(modelardl)$coefficients
-intercept <- coefs["(Intercept)", "Estimate"]
-b1 <- coefs["l.1.DPC", "Estimate"]
+# DLM dan Koyck (model pada skala selisih), dikembalikan ke level TMA
+dX <- c(NA, diff(data_sub$Xt))
+dY <- c(NA, diff(data_sub$Yt))
+Y_prev <- data_sub$Yt[test_index - 1]
 
-test_baru$DTMA_pred <- intercept + b1 * test_baru$DPC
+b_dlm <- unname(coef(model_dlm$model))      # urutan: intersep, x.t, x.1
+pred_dlm_test <- Y_prev + b_dlm[1] + b_dlm[2] * dX[test_index] + b_dlm[3] * dX[test_index - 1]
 
-last_TMA_train <- tail(train$Yt, 1)
+b_koyck <- unname(coef(model_koyck$model))  # urutan: intersep, Y.1, X.t
+pred_koyck_test <- Y_prev + b_koyck[1] + b_koyck[2] * dY[test_index - 1] + b_koyck[3] * dX[test_index]
 
-test_baru$TMA_pred <- NA
-test_baru$TMA_pred[1] <- last_TMA_train + test_baru$DTMA_pred[1]
+plot(test_lag$Date, aktual_test, type = "l", col = "black",
+     main = "Test: Actual vs Predicted TMA", xlab = "Tanggal", ylab = "TMA")
+lines(test_lag$Date, pred_ardl_test, col = "blue")
+legend("topleft", legend = c("Actual", "ARDL"), col = c("black", "blue"), lty = 1)
 
-for(i in 2:nrow(test_baru)) {
-  test_baru$TMA_pred[i] <- test_baru$TMA_pred[i-1] + test_baru$DTMA_pred[i]
-}
-
-TMA_actual <- test$Yt[-1]  
-TMA_pred <- test_baru$TMA_pred
-
-mse <- mean((TMA_actual - TMA_pred)^2, na.rm = TRUE)
-rmse <- sqrt(mse)
-date_seq <- seq.Date(from = as.Date("2024-07-25"), by = "day", length.out = length(TMA_pred))
-
-plot(TMA_actual, type = "l", col = "black", main = "Actual vs Predicted TMA")
-lines(TMA_pred, col = "blue")
-legend("topleft", legend = c("Actual", "Predicted"), col = c("black", "blue"), lty = 1)
-
-plot(date_seq, TMA_actual, type = "l", col = "black", 
-     main = "Actual vs Predicted TMA", xlab = "Tanggal", ylab = "TMA")
-lines(date_seq, TMA_pred, col = "blue")
-legend("topleft", legend = c("Actual", "Predicted"), 
-       col = c("black", "blue"), lty = 1)
-
-MAE <- mean(abs(TMA_pred - TMA_actual))
-RMSE <- sqrt(mean((TMA_pred - TMA_actual)^2))
-MAPE <- mean(abs((TMA_actual - TMA_pred) / TMA_actual)) * 100
-
-cat("MAE:", MAE, "\n")
-cat("RMSE:", RMSE, "\n")
-cat("MAPE:", MAPE, "%\n")
+tabel_test <- rbind(
+  ARDL  = ukur_akurasi(aktual_test, pred_ardl_test),
+  DLM   = ukur_akurasi(aktual_test, pred_dlm_test),
+  Koyck = ukur_akurasi(aktual_test, pred_koyck_test),
+  Naif  = ukur_akurasi(aktual_test, naif_test)
+)
+round(tabel_test, 3)
 ```
 
-Grafik perbandingan aktual vs prediksi $\text{TMA}$ pada data testing menampilkan tren pergerakan nilai aktual terhadap hasil peramalan berdasar sumbu tanggal.
+* Tabel di atas membandingkan semua model pada data testing dengan skala yang sama (galat prediksi satu hari ke depan pada level $\text{TMA}$).
+* RMSE ARDL sebesar $`r round(tabel_test["ARDL", "RMSE"], 2)`$, DLM $`r round(tabel_test["DLM", "RMSE"], 2)`$, Koyck $`r round(tabel_test["Koyck", "RMSE"], 2)`$, dan model naif $`r round(tabel_test["Naif", "RMSE"], 2)`$.
+* RMSE ARDL `r ifelse(tabel_test["ARDL", "RMSE"] < tabel_test["Naif", "RMSE"], "lebih kecil", "tidak lebih kecil")` dibandingkan model naif, dan `r ifelse(tabel_test["ARDL", "RMSE"] < min(tabel_test["DLM", "RMSE"], tabel_test["Koyck", "RMSE"]), "lebih kecil", "tidak lebih kecil")` dibandingkan DLM dan Koyck.
+* Ukuran lain memberi gambaran yang lebih hati-hati. MAE ARDL ($`r round(tabel_test["ARDL", "MAE"], 2)`$) hanya sedikit lebih kecil dari model naif ($`r round(tabel_test["Naif", "MAE"], 2)`$), dan MAPE keduanya hampir sama ($`r round(tabel_test["ARDL", "MAPE"], 2)`\%$ vs $`r round(tabel_test["Naif", "MAPE"], 2)`\%$). Keunggulan ARDL terutama muncul pada RMSE, yaitu pada hari-hari dengan lonjakan besar, bukan pada hari biasa.
+* Karena level $\text{TMA}$ berada di sekitar $600$, MAPE yang kecil mudah dicapai oleh model sederhana sekalipun. Sebutan "sangat akurat" kurang tepat. Kesimpulan yang lebih jujur: ARDL memiliki RMSE lebih kecil, terutama saat lonjakan $\text{TMA}$, tetapi keunggulannya atas model naif belum signifikan secara statistik (lihat uji Diebold-Mariano di bawah).
+* DLM tidak lebih baik daripada model naif (RMSE $`r round(tabel_test["DLM", "RMSE"], 2)`$ vs $`r round(tabel_test["Naif", "RMSE"], 2)`$), dan Koyck jauh lebih buruk.
+* Pada grafik, ARDL mengikuti lonjakan $\text{TMA}$ dengan cukup baik, termasuk puncak sekitar $745$ pada akhir November yang diprediksi sekitar $720$.
 
-Evaluasi Kinerja:
-* MAE: $21.66831$
-* RMSE: $29.25289$
-* MAPE: $3.369037\%$
-
-Nilai MAPE pada data testing sebesar $3.369037\%$ menunjukkan konsistensi performa model yang sangat baik dan akurat dalam meramalkan data baru di luar data pelatihan.
+Untuk menguji apakah selisih ARDL dan model naif nyata secara statistik, dipakai uji Diebold-Mariano pada galat kuadrat, dengan $H_1$: ARDL lebih akurat daripada model naif.
+```{r}
+dm.test(aktual_test - pred_ardl_test, aktual_test - naif_test,
+        alternative = "less", h = 1, power = 2)
+```
+Hasilnya $DM = -1.60$ dengan $p = 0.056$. Nilai ini sedikit di atas $0.05$, sehingga keunggulan ARDL atas model naif **belum signifikan pada taraf 5%** (hanya mendekati signifikan pada taraf 10%). Perbaikan RMSE sebesar sekitar $14\%$ pada data testing belum dapat dipastikan bukan kebetulan.
 
 ### Prediksi 2025
-Memuat data peramalan tahun 2025 dari berkas eksternal, mengambil $120$ data terakhir, melakukan differencing pada peubah penjelas ($\text{PC}$), dan menghitung nilai prediksi $\text{TMA}$.
+Model yang sudah dilatih dipakai untuk peramalan satu hari ke depan pada data Januari - Maret 2025 ($90$ hari). Sebanyak $`r max(p_opt, q_opt)`$ hari terakhir 2024 dipakai hanya untuk membentuk lag pada hari-hari pertama.
 ```{r}
-data_prediksi_15 <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/Data_Jan25_Mar25.xlsx")
-data_prediksi_15 <- tail(data_prediksi_15, 120)
-data_prediksi_15$Date <- as.Date(data_prediksi_15$Date)
-str(data_prediksi_15)
+data_2025 <- read_excel("D:/IPB UNIVERSITY/KULIAH/SEMESTER 5/MPDW/Metode Peramalan Deret Waktu/Pertemuan 2/Data_Jan25_Mar25.xlsx")
+data_2025 <- data_2025 %>%
+  transmute(Date = as.Date(Date), Yt = TMA, Xt = PC)
+cat("Jumlah data 2025:", nrow(data_2025), "\n")
 
-DPC_15 <- diff(data_prediksi_15$PC, differences = 1)
-test_15 <- data.frame(DPC = DPC_15)
-colnames(test_15) <- c("DPC")
+# REVISI: tail(..., 120) dihapus karena datanya hanya 90 baris
+n_lag <- max(p_opt, q_opt)
+gabung <- bind_rows(
+  data_sub %>% mutate(Date = as.Date(Date)) %>% tail(n_lag),
+  data_2025
+)
+gabung_lag <- buat_lag(gabung, p_opt, q_opt)[-(1:n_lag), ]
 
-coefs <- summary(modelardl)$coefficients
-intercept <- coefs["(Intercept)", "Estimate"]
-b1 <- coefs["l.1.DPC", "Estimate"]
+pred_2025 <- predict(model_ardl, newdata = gabung_lag)
 
-test_15$DTMA_pred <- intercept + b1 * test_15$DPC 
-
-test_15$TMA_pred <- NA
-test_15$TMA_pred[1] <- data_prediksi_15$TMA[1] + test_15$DTMA_pred[1]
-
-for(i in 2:nrow(test_15)) {
-  test_15$TMA_pred[i] <- test_15$TMA_pred[i-1] + test_15$DTMA_pred[i]
-}
-
-tanggal_prediksi <- seq.Date(from = as.Date("2025-01-01"), by = "day", length.out = nrow(test_15))
 hasil_prediksi <- data.frame(
-  date = tanggal_prediksi,
-  TMA_actual = data_prediksi_15$TMA[-1],  
-  TMA_pred = test_15$TMA_pred
+  date = gabung_lag$Date,
+  TMA_actual = gabung_lag$Yt,
+  TMA_pred = pred_2025,
+  TMA_naif = gabung_lag$Y_lag1
 )
 
-nama_file_excel4 <- "hasil_peramalan.xlsx"
-write_xlsx(hasil_prediksi, path = nama_file_excel4)
-
-ggplot(hasil_prediksi, aes(x = date, y = TMA_pred)) +
-  geom_line(color = "blue", linewidth = 1) +
-  labs(
-    title = "Prediksi Tinggi Muka Air (TMA)",
-    x = "Tanggal",
-    y = "TMA Prediksi"
-  ) +
-  theme_minimal()
+write_xlsx(hasil_prediksi, path = "hasil_peramalan.xlsx")
 
 plot(hasil_prediksi$date, hasil_prediksi$TMA_actual, type = "l", col = "black",
-     ylab = "TMA", xlab = "Tanggal", main = "TMA Aktual vs Prediksi", cex.axis = 1.2)
+     ylab = "TMA", xlab = "Tanggal", main = "TMA Aktual vs Prediksi (Jan - Mar 2025)")
 lines(hasil_prediksi$date, hasil_prediksi$TMA_pred, col = "blue")
-legend("topleft", legend = c("Aktual", "Prediksi"), col = c("black", "blue"), lty = 1)
+legend("topleft", legend = c("Aktual", "Prediksi ARDL"), col = c("black", "blue"), lty = 1)
 
-MAE <- mean(abs(hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred))
-RMSE <- sqrt(mean((hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred)^2))
-MAPE <- mean(abs((hasil_prediksi$TMA_actual - hasil_prediksi$TMA_pred) / hasil_prediksi$TMA_actual)) * 100
-
-cat("MAE:", MAE, "\n")
-cat("RMSE:", RMSE, "\n")
-cat("MAPE:", MAPE, "%\n")
+tabel_2025 <- rbind(
+  ARDL = ukur_akurasi(hasil_prediksi$TMA_actual, hasil_prediksi$TMA_pred),
+  Naif = ukur_akurasi(hasil_prediksi$TMA_actual, hasil_prediksi$TMA_naif)
+)
+round(tabel_2025, 3)
 ```
 
-Visualisasi Grafik ggplot: Plot menggunakan ggplot2 menampilkan garis tren berwarna biru untuk "Prediksi Tinggi Muka Air (TMA)" sepanjang bulan Januari hingga April 2025.
+Pada periode Januari - Maret 2025, ARDL memiliki RMSE $`r round(tabel_2025["ARDL", "RMSE"], 2)`$ dan MAPE $`r round(tabel_2025["ARDL", "MAPE"], 2)`\%$, sedangkan model naif memiliki RMSE $`r round(tabel_2025["Naif", "RMSE"], 2)`$ dan MAPE $`r round(tabel_2025["Naif", "MAPE"], 2)`\%$. Seperti pada data testing, MAE dan MAPE ARDL hampir identik dengan model naif (MAE $`r round(tabel_2025["ARDL", "MAE"], 2)`$ vs $`r round(tabel_2025["Naif", "MAE"], 2)`$). Keunggulan RMSE datang dari lonjakan awal Maret, yang tetap diprediksi jauh lebih rendah dari nilai aktualnya (sekitar $725$ vs $795$).
 
-Plot Perbandingan Aktual vs Prediksi: Grafik base R memperlihatkan perbandingan langsung antara kurva hitam (TMA Aktual) dan kurva biru (TMA Prediksi) untuk periode tahun 2025.
-
-Evaluasi Kinerja Peramalan 2025:
-* MAE: $16.44957$
-* RMSE: $26.22874$
-* MAPE: $2.423865\%$
-
-Nilai MAPE sebesar $2.423865\%$ berada jauh di bawah ambang batas $10\%$, yang mengindikasikan bahwa model ARDL memiliki tingkat akurasi peramalan yang sangat tinggi dan sangat baik dalam memproyeksikan tinggi muka air untuk periode tahun 2025.
+Catatan: ini adalah evaluasi peramalan satu hari ke depan dengan curah hujan aktual sebagai masukan. Untuk peramalan jauh ke depan yang sesungguhnya, nilai curah hujan masa depan juga harus diramalkan atau diberikan sebagai skenario.
 
 # Kesimpulan dan Saran
 ## Kesimpulan
-Berdasarkan analisis pemodelan deret waktu bivariat antara **Tinggi Muka Air (TMA)** dan **Curah Hujan (PC)** yang telah melalui tahap *differencing* ($\text{DTMA}$ dan $\text{DPC}$) untuk mengatasi ketidakstasioneran data, dapat ditarik beberapa kesimpulan utama sebagai berikut:
+Analisis deret waktu bivariat antara **Tinggi Muka Air (TMA)** dan **Curah Hujan (PC)** memberikan kesimpulan berikut:
 
-1. **Kinerja Model Distributed Lag (DLM):**
-   * Pemodelan DLM dengan lag optimum $q=1$ membuktikan bahwa perubahan tinggi muka air tidak hanya dipengaruhi oleh curah hujan pada hari H ($\text{DPC}_t$), tetapi juga dipengaruhi secara signifikan oleh curah hujan $1$ hari sebelumnya ($\text{DPC}_{t-1}$).
-   * Dampak curah hujan hari sebelumnya ($1.01849$) ditemukan lebih besar dibanding curah hujan hari yang sama ($0.71077$).
-   * Model DLM menghasilkan nilai kriteria kebaikan model dengan $\text{MAE} = 15.78$, $\text{MSE} = 613.40$, $\text{AIC} = 8718.75$, dan $\text{BIC} = 8738.13$.
+1. **Kestasioneran:** Uji ADF menunjukkan $\text{TMA}$ dan $\text{PC}$ stasioner pada level. KPSS sepakat untuk $\text{PC}$, tetapi menolak kestasioneran $\text{TMA}$ ($p = 0.0146$), sehingga $\text{TMA}$ dipandang sebagai deret sangat persisten dengan bukti yang tidak sepenuhnya seragam. Differencing menimbulkan ciri over-differencing (ACF lag-1 negatif besar), sehingga ARDL utama dibangun pada level, yang tetap valid dalam kerangka uji batas.
 
-2. **Kinerja Model Autoregressive Lag (ARL / Koyck):**
-   * Pemodelan ARL (Koyck) memasukkan komponen *lag* peubah respon ($\text{DTMA}_{t-1}$) untuk menangkap efek peluruhan eksponensial.
-   * Meskipun peubah $\text{DTMA}_{t-1}$ dan $\text{DPC}_t$ berpengaruh signifikan, pembatasan struktur *lag* yang kaku ala Koyck serta pengestimasian berbasis *Instrumental Variable* (IV) menghasilkan tingkat kesalahan yang lebih besar ($\text{MAE} = 21.38$ dan $\text{MSE} = 1082.00$) serta koefisien determinasi ($R^2$) yang negatif. Hal ini mengindikasikan bahwa model Koyck kurang cocok untuk menggambarkan dinamika data ini.
+2. **Model Distributed Lag (DLM):** DLM dengan $q = 1$ pada data selisih menunjukkan bahwa perubahan $\text{TMA}$ dipengaruhi perubahan curah hujan hari yang sama ($0.71077$) dan hari sebelumnya ($1.01849$), dengan $R^2$ hanya $11.86\%$, MAE $= 15.78$, dan MSE $= 613.40$ pada data latih.
 
-3. **Keunggulan dan Kelayakan Model ARDL (Dynardl):**
-   * Pemodelan **Autoregressive Distributed Lag (ARDL)** terbukti menjadi kerangka kerja terbaik (*best-fit model*) karena menggabungkan keunggulan struktur *lag* peubah respon sekaligus peubah penjelas secara fleksibel tanpa restriksi kaku.
-   * Pengujian kointegrasi (*Bounds Test*) mengonfirmasi adanya hubungan keseimbangan jangka panjang (*long-run equilibrium*) antara curah hujan dan tinggi muka air.
-   * Model ARDL berhasil memenuhi pengujian diagnostik residual secara baik serta menghasilkan akurasi peramalan (*forecasting accuracy*) yang sangat presisi dengan nilai **MAPE di bawah 10%** (berada pada kisaran $2.42\% - 5.25\%$).
+3. **Model Koyck:** Estimasi Koyck tidak layak dipakai karena parameter peluruhan $\lambda = -0.506$ berada di luar rentang $0 < \lambda < 1$ dan koefisien curah hujan bertanda negatif (tidak masuk akal secara hidrologi). MAE $= 21.38$ dan MSE $= 1082.00$ juga lebih buruk dari DLM.
+
+4. **Model ARDL:** ARDL level terpilih adalah ARDL($`r p_opt`$, $`r q_opt`$) dengan kecepatan penyesuaian $`r round(kec_penyesuaian, 3)`$ per hari dan pengganda jangka panjang $`r round(lrm, 3)`$. Uji batas Pesaran-Shin-Smith menunjukkan adanya hubungan jangka panjang, walaupun uji ini kurang informatif bila peubah sudah stasioner.
+
+5. **Kinerja peramalan:** Pada data testing, RMSE ARDL sebesar $`r round(tabel_test["ARDL", "RMSE"], 2)`$ dibandingkan $`r round(tabel_test["Naif", "RMSE"], 2)`$ untuk model naif, sedangkan DLM dan Koyck lebih buruk. Namun MAE dan MAPE ARDL hanya sedikit lebih baik daripada model naif, dan uji Diebold-Mariano menghasilkan $p = 0.056$, sehingga keunggulan ARDL atas model naif belum signifikan pada taraf 5%. Perbaikannya bersifat moderat dan terutama muncul saat lonjakan $\text{TMA}$. Pola yang sama terlihat pada data Januari - Maret 2025. Lonjakan tertinggi masih cenderung diprediksi lebih rendah dari nilai aktualnya.
+
+6. **Keterbatasan:** Residual tidak normal (Jarque-Bera dan Shapiro-Wilk), ragam residual tidak konstan (Breusch-Pagan pada `ardlBound`), dan uji RESET menunjukkan kemungkinan hubungan tidak linear. Karena itu inferensi (uji t, selang kepercayaan) perlu ditafsirkan hati-hati, dan galat baku yang tahan heteroskedastisitas sebaiknya dipakai. Dengan galat baku HC3, pengaruh curah hujan hari sebelumnya ($X_{t-1}$) tidak lagi signifikan pada $5\%$.
 
 ## Saran
-Secara keseluruhan, model **ARDL** dinobatkan sebagai model terbaik dan paling andal untuk memprediksi fluktuasi tinggi muka air berdasarkan pola curah hujan. Model ini sangat direkomendasikan untuk digunakan sebagai dasar sistem peringatan dini (*early warning system*) maupun pengambil kebijakan dalam mitigasi risiko banjir dan pengelolaan sumber daya air.
+
+* Bandingkan selalu dengan model naif sebelum menyebut model akurat, dan laporkan RMSE/MAE di samping MAPE.
+* Coba transformasi curah hujan (mis. $\log(1+X_t)$) atau efek non-linear untuk menangani hujan ekstrem.
+* Pertimbangkan peubah penjelas tambahan yang sudah tersedia di data 2025 (suhu, kelembapan, kecepatan angin).
+* Periksa kualitas data $\text{TMA}$ pada periode yang tampak datar (akhir 2023 - awal 2024).
+* Model ini dapat menjadi dasar awal sistem peringatan dini, tetapi belum layak dijadikan satu-satunya dasar keputusan mitigasi banjir sebelum kinerjanya pada lonjakan $\text{TMA}$ ekstrem dievaluasi dan diperbaiki.
